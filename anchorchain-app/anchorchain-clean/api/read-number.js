@@ -17,9 +17,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "No image provided" });
     }
 
-    const promptText = kind === "scheduled"
-      ? "Look at this image of a dental practice schedule. Find the total SCHEDULED PRODUCTION dollar amount for the day (the main scheduled/booked revenue figure). Reply with ONLY the number, no dollar sign, no words, no commas. Example: 8200. If you can't find it, reply: NONE"
-      : "Look at this image of a dental practice schedule or production report. Find the total PRODUCTION dollar amount (the main money/revenue figure). Reply with ONLY the number, no dollar sign, no words, no commas. Example: 12450. If you can't find a production number, reply: NONE";
+    const promptText = "Look at this image of a dental practice report. Find the number that appears next to or after the word 'Scheduled'. This is the monthly scheduled production figure. Reply with ONLY that number — no dollar sign, no words, no commas. For example, if it shows 'Scheduled 281,904' reply with: 281904. If you can't find a number after 'Scheduled', reply: NONE";
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
