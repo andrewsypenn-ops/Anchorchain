@@ -1028,13 +1028,23 @@ function CEODashboard({ yesterdayPct, streak, date }) {
             });
             const data = await res.json();
             if (data.number) {
-              setMetrics(prev => {
-                const m = { ...prev, [cardKey]: { ...prev[cardKey], value: data.number } };
-                saveDashboard(m);
-                return m;
-              });
+              const confirmed = window.prompt(
+                "I read this number from your photo. Check it against the 'Scheduled' number and fix it if needed, then press OK:",
+                data.number
+              );
+              if (confirmed !== null && confirmed.trim() !== "") {
+                const cleaned = confirmed.replace(/[^0-9.]/g, "");
+                setMetrics(prev => {
+                  const m = { ...prev, [cardKey]: { ...prev[cardKey], value: cleaned } };
+                  saveDashboard(m);
+                  return m;
+                });
+              }
+              setPhotoReading(null);
+            } else {
+              alert("Couldn't read a number. Details: " + (data.debug || "unknown"));
+              setPhotoReading(null);
             }
-            setPhotoReading(null);
           } catch (e) {
             console.error("Photo read failed:", e);
             setPhotoReading(null);
