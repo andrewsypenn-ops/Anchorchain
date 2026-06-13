@@ -106,9 +106,11 @@ const TEMPLATE_TEAMS = [
   {
     id: 4, name: "Growth Gang", subtitle: "marketing", color: "#4ECDC4", nameColor: "#FFD700",
     tasks: [
-      { id: 401, label: "GMB Pics (10)", done: false },
-      { id: 402, label: "Social Media Post (1)", done: false },
+      { id: 401, label: "GMB! Take a photo/vid", done: false },
+      { id: 402, label: "Check Social Media", done: false },
       { id: 403, label: "10-Star Experience (2)", done: false },
+      { id: 404, label: "Hooligans! Collaborate + Galvanize!", done: false },
+      { id: 405, label: "Go Karaling!", done: false },
     ],
   },
   {
@@ -1416,10 +1418,24 @@ export default function App() {
     // One-time cleanup: fix duplicate task IDs within each team for each day
     let changed = false;
     let counter = 950000 + (Date.now() % 40000000);
+    // Clean fixed task list for Growth Gang (team id 4)
+    const GROWTH_GANG_TASKS = [
+      { id: 401, label: "GMB! Take a photo/vid" },
+      { id: 402, label: "Check Social Media" },
+      { id: 403, label: "10-Star Experience (2)" },
+      { id: 404, label: "Hooligans! Collaborate + Galvanize!" },
+      { id: 405, label: "Go Karaling!" },
+    ];
     Object.keys(data).forEach(dk => {
       if (!Array.isArray(data[dk])) return;
       data[dk] = data[dk].map(team => {
         if (!team.tasks) return team;
+        // Reset Growth Gang (id 4) to the clean fixed list, preserving done state by position
+        if (team.id === 4) {
+          changed = true;
+          const oldDone = team.tasks.map(t => !!t.done);
+          return { ...team, tasks: GROWTH_GANG_TASKS.map((t, i) => ({ ...t, done: oldDone[i] || false })) };
+        }
         const seen = new Set();
         const tasks = team.tasks.map(tk => {
           if (seen.has(tk.id)) { changed = true; return { ...tk, id: counter++ }; }
@@ -1429,6 +1445,15 @@ export default function App() {
         return { ...team, tasks };
       });
     });
+    // Also fix the saved template's Growth Gang
+    try {
+      const tmplRaw = localStorage.getItem("anchorchain_template_v1");
+      if (tmplRaw) {
+        const tmpl = JSON.parse(tmplRaw);
+        const fixed = tmpl.map(t => t.id === 4 ? { ...t, tasks: GROWTH_GANG_TASKS.map(x => ({ ...x, done: false })) } : t);
+        localStorage.setItem("anchorchain_template_v1", JSON.stringify(fixed));
+      }
+    } catch {}
     if (changed) { try { saveAllData(data); } catch {} }
     return data;
   });
