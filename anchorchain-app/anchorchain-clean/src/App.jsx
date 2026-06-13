@@ -1498,15 +1498,26 @@ export default function App() {
   const savedTeams = allData[selectedDate];
   const teams = (() => {
     if (!savedTeams) return deepClone();
-    // Merge in any new steps from TEMPLATE_TEAMS that aren't in saved data
+    const tmpl = deepClone();
+    // Merge in any new steps from the template that aren't in saved data
     const savedIds = savedTeams.map(t => t.id);
-    const missing = TEMPLATE_TEAMS.filter(t => !savedIds.includes(t.id)).map(t => JSON.parse(JSON.stringify(t)));
-    if (missing.length === 0) return savedTeams;
-    // Insert missing steps in correct template order
-    const merged = [...savedTeams, ...missing];
+    const missing = tmpl.filter(t => !savedIds.includes(t.id)).map(t => JSON.parse(JSON.stringify(t)));
+    // Sync permanent task LABELS from the template into each saved day,
+    // while keeping that day's own done/doneBy/fill-in state.
+    const synced = savedTeams.map(st => {
+      const tt = tmpl.find(t => t.id === st.id);
+      if (!tt || !tt.tasks || !st.tasks) return st;
+      const tmplTasks = tt.tasks;
+      const newTasks = st.tasks.map(task => {
+        const match = tmplTasks.find(x => x.id === task.id);
+        return match ? { ...task, label: match.label } : task;
+      });
+      return { ...st, tasks: newTasks };
+    });
+    const merged = [...synced, ...missing];
     return merged.sort((a, b) => {
-      const ia = TEMPLATE_TEAMS.findIndex(t => t.id === a.id);
-      const ib = TEMPLATE_TEAMS.findIndex(t => t.id === b.id);
+      const ia = tmpl.findIndex(t => t.id === a.id);
+      const ib = tmpl.findIndex(t => t.id === b.id);
       return ia - ib;
     });
   })();
