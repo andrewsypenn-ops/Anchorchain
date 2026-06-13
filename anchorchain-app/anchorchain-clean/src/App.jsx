@@ -1028,8 +1028,9 @@ function CEODashboard({ yesterdayPct, streak, date }) {
             });
             const data = await res.json();
             if (data.number) {
+              const prettyDate = new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
               const confirmed = window.prompt(
-                "I read this number from your photo. Check it against the 'Scheduled' number and fix it if needed, then press OK:",
+                "Saving to: " + prettyDate + "\n\nI read this number from your photo. Check it and fix it if needed, then press OK. (If this is the wrong day, press Cancel and change the date first.)",
                 data.number
               );
               if (confirmed !== null && confirmed.trim() !== "") {
@@ -1100,7 +1101,7 @@ function CEODashboard({ yesterdayPct, streak, date }) {
 
   const cards = [
     { key: "production", icon: "💰", label: "MONTHLY PRODUCTION", color: "#FFD700", prefix: "$", photoRead: true },
-    { key: "scheduled", icon: "📅", label: "SCHEDULED TODAY", color: "#4ECDC4", prefix: "" },
+    { key: "scheduled", icon: "📅", label: "SCHEDULED TODAY", color: "#4ECDC4", prefix: "$", photoRead: true },
     { key: "newPatients", icon: "✨", label: "NEW PATIENTS", color: "#FF69B4", prefix: "", sheetSync: true },
   ];
 
