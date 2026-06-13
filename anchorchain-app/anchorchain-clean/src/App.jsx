@@ -403,16 +403,13 @@ function getProgress(tasks, teamId, date) {
   return Math.round((doneItems / totalItems) * 100);
 }
 function getDayPct(teams, date) {
-  let total = 0, done = 0;
-  let allCardsComplete = true; // every card must be 100% for overall to reach 100
+  // Build an ordered list of "cards" each with its own done/total fraction.
+  const cards = [];
   teams.forEach(t => {
     const staffIds = t.id ? (TASK_IDS_WITH_STAFF[t.id] || []) : [];
     const real = (t.tasks || []).filter(tk => !tk.header && !tk.isNote && !staffIds.includes(tk.id));
     let cardTotal = real.length;
     let cardDone = real.filter(tk => tk.done).length;
-    total += real.length;
-    done += real.filter(tk => tk.done).length;
-    // Add staff (doctor) checkmarks for this team's staff-tasks
     if (staffIds.length && date) {
       try {
         const staffData = JSON.parse(localStorage.getItem(STAFF_KEY) || "{}");
@@ -429,25 +426,31 @@ function getDayPct(teams, date) {
           const dn = entry.done || {};
           const people = [...scheduled.filter(n => !hidden.includes(n)), ...extras];
           people.forEach(name => {
-            total++; cardTotal++;
-            if (dn[name] === true || (dn[name] && dn[name].checked)) { done++; cardDone++; }
+            cardTotal++;
+            if (dn[name] === true || (dn[name] && dn[name].checked)) cardDone++;
           });
         });
       } catch {}
     }
-    // This card counts as complete only if it has items and they're all done
-    if (cardTotal > 0 && cardDone < cardTotal) allCardsComplete = false;
+    // Only include cards that actually have something to complete
+    if (cardTotal > 0) cards.push({ done: cardDone, total: cardTotal });
   });
-  // Include the New Patients "Filled Today" as one unit toward the overall
-  if (date) {
-    total += 1;
-    if (getNpFilled(date)) done += 1; else allCardsComplete = false;
+  // New Patients "Filled Today" is its own card (1 item)
+  if (date) cards.push({ done: getNpFilled(date) ? 1 : 0, total: 1 });
+
+  if (!cards.length) return 0;
+
+  // SEQUENTIAL: each card is worth an equal share. You only earn a card's
+  // progress once every card BEFORE it is fully complete. The first incomplete
+  // card earns partial credit; cards after it earn nothing until reached.
+  const share = 1 / cards.length;
+  let earned = 0;
+  for (let i = 0; i < cards.length; i++) {
+    const frac = cards[i].done / cards[i].total;
+    earned += frac * share;
+    if (frac < 1) break; // stop at the first card that isn't fully done
   }
-  if (!total) return 0;
-  let pct = Math.round((done / total) * 100);
-  // Don't allow the overall to show 100% unless every card is fully complete
-  if (pct >= 100 && !allCardsComplete) pct = 99;
-  return pct;
+  return Math.round(earned * 100);
 }
 
 function Checkmark() {
