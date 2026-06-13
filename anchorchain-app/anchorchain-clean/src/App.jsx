@@ -1545,9 +1545,25 @@ export default function App() {
   const updateStats = (tid, stats) => save(teams.map(t => t.id === tid ? { ...t, stats } : t));
   const updateTaskLabel = (teamId, taskId, newLabel) => {
     save(teams.map(t => t.id === teamId ? { ...t, tasks: t.tasks.map(tk => tk.id === taskId ? { ...tk, label: newLabel } : tk) } : t));
-    const tmpl = deepClone();
-    const updatedTmpl = tmpl.map(t => t.id === teamId ? { ...t, tasks: t.tasks.map(tk => tk.id === taskId ? { ...tk, label: newLabel } : tk) } : t);
+    // Update the saved template so the rename is permanent across all days.
+    // Start from a full template (merge saved template over the base so no team is missing).
+    let base;
+    try { base = JSON.parse(localStorage.getItem("anchorchain_template_v1")) || JSON.parse(JSON.stringify(TEMPLATE_TEAMS)); }
+    catch { base = JSON.parse(JSON.stringify(TEMPLATE_TEAMS)); }
+    // Ensure every base team from TEMPLATE_TEAMS exists in the template
+    const baseIds = base.map(t => t.id);
+    JSON.parse(JSON.stringify(TEMPLATE_TEAMS)).forEach(tt => { if (!baseIds.includes(tt.id)) base.push(tt); });
+    const updatedTmpl = base.map(t => t.id === teamId ? { ...t, tasks: (t.tasks || []).map(tk => tk.id === taskId ? { ...tk, label: newLabel } : tk) } : t);
     try { localStorage.setItem("anchorchain_template_v1", JSON.stringify(updatedTmpl)); } catch {}
+    // Also update every already-saved day so past/visited days reflect the new label immediately
+    setAllData(prev => {
+      const copy = { ...prev };
+      Object.keys(copy).forEach(dk => {
+        copy[dk] = copy[dk].map(t => t.id === teamId ? { ...t, tasks: (t.tasks || []).map(tk => tk.id === taskId ? { ...tk, label: newLabel } : tk) } : t);
+      });
+      saveAllData(copy);
+      return copy;
+    });
   };
 
   const pct = getDayPct(teams, selectedDate);
