@@ -136,7 +136,6 @@ const TEMPLATE_TEAMS = [
       { id: 624, label: "Litzy", value: "" },
       { id: 625, label: "Brianna", value: "" },
       { id: 626, label: "Ashanty", value: "" },
-      { id: 627, label: "Leeza", value: "" },
       { id: 628, label: "Sheila", value: "" },
       { id: 629, label: "Michii", value: "" },
       { id: 630, label: "Charmaine", value: "" },
@@ -702,17 +701,17 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
     if (Number(id) === DAYS_LEFT_ID) {
       return (
         <div key={id} style={{ background: "#0f1f38", border: `1px solid ${team.color}33`, borderRadius: 8, padding: "8px 10px" }}>
-          <div style={{ fontFamily: "monospace", fontSize: 8, color: "#555", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase" }}>{s.label} (M-F)</div>
+          <div style={{ fontFamily: "monospace", fontSize: 9, color: "#dfe7f0", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase" }}>{s.label} (M-F)</div>
           <div style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: opts.big ? 22 : 18, color: team.nameColor || "#fff" }}>{daysLeft}</div>
-          <div style={{ fontFamily: "monospace", fontSize: 7, color: "#444", marginTop: 2 }}>auto-calculated</div>
+          <div style={{ fontFamily: "monospace", fontSize: 8, color: "#8a97a8", marginTop: 2 }}>auto-calculated</div>
         </div>
       );
     }
     return (
       <div key={id} style={{ background: "#0f1f38", border: opts.showDelete ? "1px solid #1a3050" : `1px solid ${team.color}33`, borderRadius: opts.small ? 6 : 8, padding: opts.small ? "6px 8px" : "8px 10px", position: "relative" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ fontFamily: "monospace", fontSize: 8, color: opts.small ? "#444" : "#555", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{s.label}</div>
-          {opts.showDelete && <span onClick={() => deleteStat(id)} style={{ color: "#3a3a5a", fontSize: 11, cursor: "pointer", lineHeight: 1, marginLeft: 4 }}>×</span>}
+          <div style={{ fontFamily: "monospace", fontSize: 9, color: "#dfe7f0", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{s.label}</div>
+          {opts.showDelete && <span onClick={() => deleteStat(id)} style={{ color: "#7a8aa0", fontSize: 13, cursor: "pointer", lineHeight: 1, marginLeft: 4 }}>×</span>}
         </div>
         <div onClick={() => editTotal(id, s.label)} style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: opts.big ? 22 : 17, color: team.nameColor || "#fff", cursor: "pointer", lineHeight: 1.1 }} title="Tap to edit total">{totalFor(id)}</div>
         <div style={{ display: "flex", gap: 3, alignItems: "center", marginTop: 5 }}>
