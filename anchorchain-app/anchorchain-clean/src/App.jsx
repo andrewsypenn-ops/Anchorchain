@@ -388,10 +388,17 @@ function getProgress(tasks, teamId, date) {
   const doneItems = real.filter(t => t.done).length + staffDone;
   return Math.round((doneItems / totalItems) * 100);
 }
-function getDayPct(teams) {
+function getDayPct(teams, date) {
   const all = teams.flatMap(t => (t.tasks || []).filter(tk => !tk.header && !tk.isNote));
-  if (!all.length) return 0;
-  return Math.round((all.filter(t => t.done).length / all.length) * 100);
+  let total = all.length;
+  let done = all.filter(t => t.done).length;
+  // Include the New Patients "Filled Today" as one unit toward the overall
+  if (date) {
+    total += 1;
+    if (getNpFilled(date)) done += 1;
+  }
+  if (!total) return 0;
+  return Math.round((done / total) * 100);
 }
 
 function Checkmark() {
@@ -655,7 +662,7 @@ function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDe
   );
 }
 
-function StatCard({ team, date, onStatsChange, isMobile }) {
+function StatCard({ team, date, onStatsChange, isMobile, onFilledChange }) {
   const [stats, setStats] = useState(team.stats || []);
   const [collapsed, setCollapsed] = useState(true);
   useEffect(() => setStats(team.stats || []), [team]);
@@ -666,7 +673,7 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
   const [addInputs, setAddInputs] = useState({}); // { fieldId: "typed amount" }
   const [filled, setFilled] = useState(() => getNpFilled(date));
   useEffect(() => { setTotals(getStatTotals(date)); setAddInputs({}); setFilled(getNpFilled(date)); }, [date]);
-  const toggleFilled = () => { const v = !filled; setFilled(v); setNpFilled(date, v); };
+  const toggleFilled = () => { const v = !filled; setFilled(v); setNpFilled(date, v); if (onFilledChange) onFilledChange(); };
   const monthLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const totalFor = (id) => totals[id] || 0;
@@ -740,13 +747,12 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
           {team.name}
         </div>
         {team.subtitle && <div style={{ fontSize: 14, color: "#bbb", fontFamily: "monospace", letterSpacing: 1, marginTop: 1 }}>{team.subtitle}</div>}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
-          <div style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: 30, color: filled ? "#4ECDC4" : "#fff" }}>{filled ? 100 : 0}<span style={{ fontSize: 16, color: filled ? "#4ECDC4" : "#555" }}>%</span></div>
-          {filled && <span style={{ fontFamily: "monospace", fontSize: 11, color: "#4ECDC4", letterSpacing: 1 }}>FILLED ✓</span>}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
           <div style={{ fontSize: 14, color: team.color, fontFamily: "monospace", letterSpacing: 1 }}>LIVE STATS · {monthLabel.toUpperCase()}</div>
-          <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ProgressRing pct={filled ? 100 : 0} color={team.color} size={isMobile ? 50 : 56} />
+            <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
+          </div>
         </div>
       </div>
       {top[0] && <div style={{ marginBottom: 14 }}>{tile(top[0], { big: true })}</div>}
@@ -1359,7 +1365,7 @@ function CalendarModal({ onClose, onSelectDate, selectedDate, allData }) {
             if (!day) return <div key={i} />;
             const ds = `${yr}-${String(mo+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
             const isToday = ds === todayStr(), isSel = ds === selectedDate;
-            const pct = allData[ds] ? getDayPct(allData[ds]) : null;
+            const pct = allData[ds] ? getDayPct(allData[ds], ds) : null;
             const dot = pct === 100 ? "#4ECDC4" : pct > 0 ? "#FF6B35" : "#333";
             return (
               <div key={i} onClick={() => { onSelectDate(ds); onClose(); }} style={{ textAlign: "center", padding: "6px 2px", borderRadius: 8, cursor: "pointer", background: isSel ? "#4ECDC4" : isToday ? "#0f1f38" : "transparent", border: isToday && !isSel ? "1px solid #1a3050" : "1px solid transparent" }}>
@@ -1395,6 +1401,7 @@ export default function App() {
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [allData, setAllData] = useState(() => loadAllData());
   const [selectedDate, setSelectedDate] = useState(todayStr());
+  const [filledTick, setFilledTick] = useState(0);
   const [showCal, setShowCal] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [nextId, setNextId] = useState(900000);
@@ -1520,12 +1527,12 @@ export default function App() {
     try { localStorage.setItem("anchorchain_template_v1", JSON.stringify(updatedTmpl)); } catch {}
   };
 
-  const pct = getDayPct(teams);
+  const pct = getDayPct(teams, selectedDate);
   const yesterdayPct = (() => {
     const d = new Date(selectedDate + "T12:00:00");
     d.setDate(d.getDate() - 1);
     const ys = d.toISOString().slice(0, 10);
-    return allData[ys] ? getDayPct(allData[ys]) : 0;
+    return allData[ys] ? getDayPct(allData[ys], ys) : 0;
   })();
   const streak = (() => {
     let count = 0;
@@ -1535,7 +1542,7 @@ export default function App() {
       const check = new Date(d);
       check.setDate(check.getDate() - i);
       const cs = check.toISOString().slice(0, 10);
-      if (allData[cs] && getDayPct(allData[cs]) === 100) count++;
+      if (allData[cs] && getDayPct(allData[cs], cs) === 100) count++;
       else break;
     }
     return count;
@@ -1637,7 +1644,7 @@ export default function App() {
                   <div style={{ position: "relative", width: isMobile ? "100%" : "auto" }}>
                     <div style={{ position: "absolute", top: -32, left: 0, fontFamily: "monospace", fontSize: 16, color: "#555", letterSpacing: 2 }}>STEP {String(i + 1).padStart(2, "0")}</div>
                     {team.isStatCard
-                      ? <StatCard team={team} date={selectedDate} isMobile={isMobile} onStatsChange={s => updateStats(team.id, s)} />
+                      ? <StatCard team={team} date={selectedDate} isMobile={isMobile} onStatsChange={s => updateStats(team.id, s)} onFilledChange={() => setFilledTick(t => t + 1)} />
                       : team.isScoreCard
                         ? <ScoreCard team={team} isMobile={isMobile} onUpdate={s => save(teams.map(t => t.id === team.id ? { ...t, sections: s } : t))} />
                       : team.isRainMakers
