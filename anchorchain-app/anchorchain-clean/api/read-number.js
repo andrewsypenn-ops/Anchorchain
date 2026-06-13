@@ -18,12 +18,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { imageBase64, mediaType } = req.body;
+    const { imageBase64, mediaType, kind } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: "No image provided" });
     }
 
-    const promptText = "This is a photo of a dental practice scheduling report. The image may be rotated, taken at an angle, or have screen glare. First, mentally orient the image correctly. Then find the line labeled 'Scheduled:' (it appears in a summary box, near 'Month Goal', 'Variance', and 'Production'). Read the number directly after 'Scheduled:' very carefully, digit by digit. This is a 6-digit monthly production number. Reply with ONLY that number — no dollar sign, no words, no commas. For example, if it shows 'Scheduled: 341,732' reply with: 341732. Double-check each digit before answering. If you truly cannot read it, reply: NONE";
+    const promptText = kind === "scheduled"
+      ? "This is a photo of a dental practice 'Unscheduled Treatment' report with a table of team members and dollar amounts. The image may be rotated, taken at an angle, or have screen glare. First mentally orient it correctly. Find the 'Total $' figure on the 'Total/Avg.' summary row at the bottom of the table (the grand total of all team members' dollars, for example $21,330). Read it carefully digit by digit. Reply with ONLY that number — no dollar sign, no words, no commas. For example for $21,330 reply: 21330. If you cannot read it, reply: NONE"
+      : "This is a photo of a dental practice scheduling report. The image may be rotated, taken at an angle, or have screen glare. First, mentally orient the image correctly. Then find the line labeled 'Scheduled:' (it appears in a summary box, near 'Month Goal', 'Variance', and 'Production'). Read the number directly after 'Scheduled:' very carefully, digit by digit. This is a 6-digit monthly production number. Reply with ONLY that number — no dollar sign, no words, no commas. For example, if it shows 'Scheduled: 341,732' reply with: 341732. Double-check each digit before answering. If you truly cannot read it, reply: NONE";
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
