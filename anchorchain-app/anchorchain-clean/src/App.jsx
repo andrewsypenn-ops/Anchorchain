@@ -8,7 +8,7 @@ const BOARD_ID = "shared_board";
 
 // Cloud sync: mirrors all localStorage keys to one Supabase row
 const SYNC_KEYS = [
-  "anchorchain_v2", "anchorchain_dashboard_v1", "anchorchain_staff_v2",
+  "anchorchain_v2", "anchorchain_dashboard_v2", "anchorchain_staff_v2",
   "anchorchain_day_defaults_v1", "anchorchain_tenstar_v1",
   "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1"
 ];
@@ -269,9 +269,20 @@ const TEMPLATE_TEAMS = [
 ];
 
 const STORAGE_KEY = "anchorchain_v2";
-const DASHBOARD_KEY = "anchorchain_dashboard_v1";
-function loadDashboard() { try { const r = localStorage.getItem(DASHBOARD_KEY); return r ? JSON.parse(r) : null; } catch { return null; } }
-function saveDashboard(d) { try { localStorage.setItem(DASHBOARD_KEY, JSON.stringify(d)); } catch {} }
+const DASHBOARD_KEY = "anchorchain_dashboard_v2";
+// Per-date dashboard numbers. Stored as { "2026-06-14": {...}, "2026-06-13": {...} }
+function loadDashboardAll() { try { const r = localStorage.getItem(DASHBOARD_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; } }
+function loadDashboard(date) {
+  const all = loadDashboardAll();
+  return all[date] || null;
+}
+function saveDashboard(date, d) {
+  try {
+    const all = loadDashboardAll();
+    all[date] = d;
+    localStorage.setItem(DASHBOARD_KEY, JSON.stringify(all));
+  } catch {}
+}
 const STAFF_KEY = "anchorchain_staff_v2";
 const DAY_DEFAULTS_KEY = "anchorchain_day_defaults_v1";
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -988,11 +999,16 @@ function WinOfTheDay({ date, userName }) {
 }
 
 function CEODashboard({ yesterdayPct, streak, date }) {
-  const [metrics, setMetrics] = useState(() => loadDashboard() || {
+  const blankMetrics = {
     production: { value: "", goal: "" },
     scheduled: { value: "", goal: "" },
     newPatients: { value: "", goal: "" },
-  });
+  };
+  const [metrics, setMetrics] = useState(() => loadDashboard(date) || blankMetrics);
+  // When the selected date changes, load that date's numbers (or blank)
+  useEffect(() => {
+    setMetrics(loadDashboard(date) || blankMetrics);
+  }, [date]);
   const [editing, setEditing] = useState(null);
   const [npSync, setNpSync] = useState("idle"); // idle, loading, done, error
   const [npCount, setNpCount] = useState(null);
@@ -1037,7 +1053,7 @@ function CEODashboard({ yesterdayPct, streak, date }) {
                 const cleaned = confirmed.replace(/[^0-9.]/g, "");
                 setMetrics(prev => {
                   const m = { ...prev, [cardKey]: { ...prev[cardKey], value: cleaned } };
-                  saveDashboard(m);
+                  saveDashboard(date, m);
                   return m;
                 });
               }
@@ -1082,7 +1098,7 @@ function CEODashboard({ yesterdayPct, streak, date }) {
         // Auto-fill the New Patients card value
         setMetrics(prev => {
           const m = { ...prev, newPatients: { ...prev.newPatients, value: String(todayYes) } };
-          saveDashboard(m);
+          saveDashboard(date, m);
           return m;
         });
       })
@@ -1093,7 +1109,7 @@ function CEODashboard({ yesterdayPct, streak, date }) {
 
   const update = (key, field, val) => {
     const m = { ...metrics, [key]: { ...metrics[key], [field]: val } };
-    setMetrics(m); saveDashboard(m);
+    setMetrics(m); saveDashboard(date, m);
   };
 
   const num = v => { const n = parseFloat(String(v).replace(/[$,%]/g, "")); return isNaN(n) ? 0 : n; };
