@@ -98,9 +98,9 @@ const TEMPLATE_TEAMS = [
   {
     id: 3, name: "✨ Sparkle Team", subtitle: "hygiene heroes", color: "#E8E8FF", nameColor: "#E0E0FF",
     tasks: [
-      { id: 301, label: "Dev build", done: false },
-      { id: 302, label: "QA testing", done: false },
-      { id: 303, label: "Bug fixes", done: false },
+      { id: 301, label: "Fill holes! NP + Doc Side + Move pts!", done: false },
+      { id: 302, label: "Diagnose!", done: false },
+      { id: 303, label: "Overjet for possible SRP", done: false },
     ],
   },
   {
@@ -696,8 +696,8 @@ function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDe
                   <button onClick={() => { if (newTask.trim()) { onAddTask(newTask.trim()); setNewTask(""); setAdding(false); } }} style={{ background: team.color, border: "none", borderRadius: 6, color: "#000", fontWeight: 700, fontSize: 12, padding: "0 10px", cursor: "pointer" }}>+</button>
                 </div>
               : <button onClick={() => setAdding(true)} style={{ width: "100%", background: "transparent", border: "1px dashed #1a3050", borderRadius: 8, padding: "7px", color: "#444", fontFamily: "monospace", fontSize: 10, cursor: "pointer", letterSpacing: 1 }} onMouseEnter={e => { e.target.style.borderColor = team.color; e.target.style.color = team.color; }} onMouseLeave={e => { e.target.style.borderColor = "#1a3050"; e.target.style.color = "#444"; }}>+ ADD TASK</button>}
-            {team.id === 4 && onFixTasks && (
-              <button onClick={onFixTasks} style={{ width: "100%", marginTop: 8, background: "transparent", border: `1px solid ${team.color}66`, borderRadius: 8, padding: "7px", color: team.color, fontFamily: "monospace", fontSize: 10, cursor: "pointer", letterSpacing: 1 }}>↺ RESET TO 5 STANDARD TASKS</button>
+            {(team.id === 4 || team.id === 3) && onFixTasks && (
+              <button onClick={onFixTasks} style={{ width: "100%", marginTop: 8, background: "transparent", border: `1px solid ${team.color}66`, borderRadius: 8, padding: "7px", color: team.color, fontFamily: "monospace", fontSize: 10, cursor: "pointer", letterSpacing: 1 }}>↺ RESET TO STANDARD TASKS</button>
             )}
           </div>
         </div>
@@ -1658,36 +1658,46 @@ export default function App() {
     setNextId(n => n + 1);
   };
   const renameTeam = (tid, name) => save(teams.map(t => t.id === tid ? { ...t, name } : t));
-  // Manual reset of Growth Gang to the 5 standard tasks, applied to all days + template
-  const fixGrowthGang = () => {
-    const GG = [
-      { id: 401, label: "GMB! Take a photo/vid", done: false },
-      { id: 402, label: "Check Social Media", done: false },
-      { id: 403, label: "10-Star Experience (2)", done: false },
-      { id: 404, label: "Hooligans! Collaborate + Galvanize!", done: false },
-      { id: 405, label: "Go Karaling!", done: false },
-    ];
+  // Standard fixed task lists for reset buttons
+  const STANDARD_TASKS = {
+    3: [
+      { id: 301, label: "Fill holes! NP + Doc Side + Move pts!" },
+      { id: 302, label: "Diagnose!" },
+      { id: 303, label: "Overjet for possible SRP" },
+    ],
+    4: [
+      { id: 401, label: "GMB! Take a photo/vid" },
+      { id: 402, label: "Check Social Media" },
+      { id: 403, label: "10-Star Experience (2)" },
+      { id: 404, label: "Hooligans! Collaborate + Galvanize!" },
+      { id: 405, label: "Go Karaling!" },
+    ],
+  };
+  // Manual reset of a team to its standard tasks, applied to all days + template
+  const fixTeamTasks = (teamId) => {
+    const std = STANDARD_TASKS[teamId];
+    if (!std) return;
     setAllData(prev => {
       const copy = { ...prev };
       Object.keys(copy).forEach(dk => {
         if (!Array.isArray(copy[dk])) return;
         copy[dk] = copy[dk].map(t => {
-          if (t.id !== 4) return t;
+          if (t.id !== teamId) return t;
           const doneById = {};
           (t.tasks || []).forEach(tk => { doneById[tk.id] = !!tk.done; });
-          return { ...t, tasks: GG.map(x => ({ ...x, done: doneById[x.id] || false })) };
+          return { ...t, tasks: std.map(x => ({ ...x, done: doneById[x.id] || false })) };
         });
       });
       saveAllData(copy);
       return copy;
     });
-    // Fix the template too
     try {
       const tmpl = deepClone();
-      const fixed = tmpl.map(t => t.id === 4 ? { ...t, tasks: GG.map(x => ({ ...x, done: false })) } : t);
+      const fixed = tmpl.map(t => t.id === teamId ? { ...t, tasks: std.map(x => ({ ...x, done: false })) } : t);
       localStorage.setItem("anchorchain_template_v1", JSON.stringify(fixed));
     } catch {}
   };
+  const fixGrowthGang = () => fixTeamTasks(4);
   const updateStats = (tid, stats) => save(teams.map(t => t.id === tid ? { ...t, stats } : t));
   const updateTaskLabel = (teamId, taskId, newLabel) => {
     save(teams.map(t => t.id === teamId ? { ...t, tasks: t.tasks.map(tk => tk.id === taskId ? { ...tk, label: newLabel } : tk) } : t));
@@ -1834,7 +1844,7 @@ export default function App() {
                         ? <ScoreCard team={team} isMobile={isMobile} onUpdate={s => save(teams.map(t => t.id === team.id ? { ...t, sections: s } : t))} />
                       : team.isRainMakers
                         ? <RainMakersCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onDeleteTask={kid => deleteTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
-                        : <TeamCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onRename={n => renameTeam(team.id, n)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onDeleteTask={kid => deleteTask(team.id, kid)} onFixTasks={() => fixGrowthGang()} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
+                        : <TeamCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onRename={n => renameTeam(team.id, n)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onDeleteTask={kid => deleteTask(team.id, kid)} onFixTasks={() => fixTeamTasks(team.id)} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
                     }
                   </div>
                   {!isMobile && i < teams.length - 1 && <div style={{ paddingTop: 60 }}><Arrow /></div>}
