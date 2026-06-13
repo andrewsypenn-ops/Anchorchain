@@ -68,7 +68,7 @@ const DAY_SCHEDULE = {
 
 const TASK_IDS_WITH_STAFF = {
   2: [201,202,203,204,205,206,207,208,209],
-  7: [703,704,706,707,708,709,710,712,713,714,715],
+  7: [703,704,706,707,708,709,710,712,713,714,715,717,718,719],
 };
 
 const TEMPLATE_TEAMS = [
@@ -868,15 +868,21 @@ function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditL
             {team.tasks.map(task => {
               if (task.header) return <SectionHeader key={task.id} label={task.label} color={team.color} />;
               if (task.isNote) return <input key={task.id} value={notes[task.id] || ""} onChange={e => setNotes(p => ({ ...p, [task.id]: e.target.value }))} placeholder="Add a note..." style={{ background: "transparent", border: "none", borderBottom: "1px solid #1a3050", color: "#aaa", fontFamily: "monospace", fontSize: 13, width: "100%", outline: "none", padding: "6px 0" }} />;
-              if (task.hasFillIn) return (
+              if (task.hasFillIn) {
+                const fillHasStaff = TASK_IDS_WITH_STAFF[7] && TASK_IDS_WITH_STAFF[7].includes(task.id);
+                return (
                 <div key={task.id}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 8, background: task.done ? team.color + "18" : "#0f1f38", border: `1px solid ${task.done ? team.color + "44" : "#1a3050"}`, cursor: "pointer" }} onClick={() => onToggle(task.id)}>
                     <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${task.done ? team.color : "#3a3a5a"}`, background: task.done ? team.color : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{task.done && <Checkmark />}</div>
                     <span style={{ fontFamily: "monospace", fontSize: 14, color: task.done ? team.color : "#ffffff", whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.5 }}>{task.label}</span>
                   </div>
                   <input value={amounts[task.id] || ""} onChange={e => setAmounts(p => ({ ...p, [task.id]: e.target.value }))} placeholder="$ amount" style={{ background: "transparent", border: "none", borderBottom: `1px solid ${team.color}44`, color: "#FFD700", fontFamily: "monospace", fontWeight: 600, fontSize: 13, width: "100%", outline: "none", padding: "4px 10px" }} />
+                  {fillHasStaff && (
+                    <StaffRow teamId={7} taskId={task.id} date={date} color={team.color} onStaffChange={() => { setStaffTick(t => t + 1); if (onStaffChangeOverall) onStaffChangeOverall(); }} />
+                  )}
                 </div>
-              );
+                );
+              }
               const rmHasStaff = TASK_IDS_WITH_STAFF[7] && TASK_IDS_WITH_STAFF[7].includes(task.id);
               return (
                 <div key={task.id}>
