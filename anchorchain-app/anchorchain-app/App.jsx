@@ -1004,21 +1004,43 @@ function CEODashboard({ yesterdayPct, streak, date }) {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const base64 = reader.result.split(",")[1];
-        const res = await fetch("/api/read-number", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64, mediaType: file.type || "image/jpeg", kind: cardKey })
-        });
-        const data = await res.json();
-        if (data.number) {
-          setMetrics(prev => {
-            const m = { ...prev, [cardKey]: { ...prev[cardKey], value: data.number } };
-            saveDashboard(m);
-            return m;
-          });
-        }
-        setPhotoReading(null);
+        // Resize/compress the image in-browser to stay under the request size limit
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            const maxDim = 1500;
+            let { width, height } = img;
+            if (width > maxDim || height > maxDim) {
+              const scale = maxDim / Math.max(width, height);
+              width = Math.round(width * scale);
+              height = Math.round(height * scale);
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL("image/jpeg", 0.7);
+            const base64 = compressed.split(",")[1];
+            const res = await fetch("/api/read-number", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageBase64: base64, mediaType: "image/jpeg", kind: cardKey })
+            });
+            const data = await res.json();
+            if (data.number) {
+              setMetrics(prev => {
+                const m = { ...prev, [cardKey]: { ...prev[cardKey], value: data.number } };
+                saveDashboard(m);
+                return m;
+              });
+            }
+            setPhotoReading(null);
+          } catch (e) {
+            console.error("Photo read failed:", e);
+            setPhotoReading(null);
+          }
+        };
+        img.src = reader.result;
       } catch (e) {
         console.error("Photo read failed:", e);
         setPhotoReading(null);
