@@ -129,6 +129,7 @@ const TEMPLATE_TEAMS = [
       { id: 616, label: "Dr Referral", value: "" },
       { id: 617, label: "Website", value: "" },
       { id: 618, label: "NA", value: "" },
+      { id: 619, label: "Megan", value: "" },
       { id: 620, label: "Hannah", value: "" },
       { id: 621, label: "MC", value: "" },
       { id: 622, label: "Julia", value: "" },
@@ -142,7 +143,6 @@ const TEMPLATE_TEAMS = [
       { id: 631, label: "Isa", value: "" },
       { id: 632, label: "NA", value: "" },
       { id: 633, label: "Kara", value: "" },
-      { id: 634, label: "Megan", value: "" },
     ],
     tasks: [],
   },
@@ -274,17 +274,29 @@ function saveDashboard(date, d) {
   } catch {}
 }
 const STAFF_KEY = "anchorchain_staff_v2";
-// Monthly running totals for stat fields, stored as { "2026-06": { "600": 110, "610": 45, ... }, ... }
+// Field IDs that should reset to 0 every DAY (stored per-date) instead of accumulating monthly
+const DAILY_RESET_FIELDS = [6001, 601]; // NP Sch'd For Future, NP Seen Today
+// Running totals for stat fields. Most accumulate monthly; DAILY_RESET_FIELDS are stored per-day.
 const NP_RUNNING_KEY = "anchorchain_np_running_v2";
 function monthKeyFor(date) { return date.slice(0, 7); } // "2026-06-14" -> "2026-06"
 function loadStatTotals() { try { return JSON.parse(localStorage.getItem(NP_RUNNING_KEY) || "{}"); } catch { return {}; } }
-function getStatTotals(date) { const all = loadStatTotals(); return all[monthKeyFor(date)] || {}; }
+// Return the totals object for a date: monthly fields keyed by month, daily fields keyed by exact date
+function getStatTotals(date) {
+  const all = loadStatTotals();
+  const monthly = all[monthKeyFor(date)] || {};
+  const daily = all[date] || {};
+  const merged = { ...monthly };
+  // Daily-reset fields come from the exact-date bucket (default 0 = fresh each day)
+  DAILY_RESET_FIELDS.forEach(id => { merged[id] = daily[id] || 0; });
+  return merged;
+}
 function setStatTotal(date, fieldId, total) {
   try {
     const all = loadStatTotals();
-    const mk = monthKeyFor(date);
-    if (!all[mk]) all[mk] = {};
-    all[mk][fieldId] = total;
+    const isDaily = DAILY_RESET_FIELDS.includes(Number(fieldId));
+    const bucket = isDaily ? date : monthKeyFor(date);
+    if (!all[bucket]) all[bucket] = {};
+    all[bucket][fieldId] = total;
     localStorage.setItem(NP_RUNNING_KEY, JSON.stringify(all));
   } catch {}
 }
@@ -702,15 +714,15 @@ function StatCard({ team, date, onStatsChange, isMobile, onFilledChange }) {
   const deleteStat = (id) => { const u = stats.filter(s => s.id !== id); setStats(u); onStatsChange && onStatsChange(u); };
   const addStat = (section) => {
     if (!newLabel.trim()) return;
-    let baseId = section === "ref" ? 610 : section === "tm" ? 635 : 604;
+    let baseId = section === "ref" ? 700 : section === "tm" ? 800 : 604;
     while (stats.find(s => s.id === baseId)) baseId++;
     const u = [...stats, { id: baseId, label: newLabel.trim(), value: "" }];
     setStats(u); onStatsChange && onStatsChange(u);
     setNewLabel(""); setAddingTo(null);
   };
   const top = stats.filter(s => [600, 6001, 601, 602, 603, 604, 605, 606, 607, 608, 609].includes(Number(s.id)));
-  const ref = stats.filter(s => Number(s.id) >= 610 && Number(s.id) <= 619);
-  const tm = stats.filter(s => Number(s.id) >= 620);
+  const ref = stats.filter(s => { const n = Number(s.id); return (n >= 610 && n <= 618) || (n >= 700 && n <= 799); });
+  const tm = stats.filter(s => { const n = Number(s.id); return (n >= 619 && n <= 699) || n >= 800; });
 
   // A running-total tile: shows the month total + a small +add row
   const tile = (s, opts = {}) => {
