@@ -710,7 +710,7 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
     return (
       <div key={id} style={{ background: "#0f1f38", border: opts.showDelete ? "1px solid #1a3050" : `1px solid ${team.color}33`, borderRadius: opts.small ? 6 : 8, padding: opts.small ? "6px 8px" : "8px 10px", position: "relative" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ fontFamily: "monospace", fontSize: 9, color: "#dfe7f0", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{s.label}</div>
+          <div style={{ fontFamily: "monospace", fontSize: 9, color: opts.labelColor || "#dfe7f0", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{s.label}</div>
           {opts.showDelete && <span onClick={() => deleteStat(id)} style={{ color: "#7a8aa0", fontSize: 13, cursor: "pointer", lineHeight: 1, marginLeft: 4 }}>×</span>}
         </div>
         <div onClick={() => editTotal(id, s.label)} style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: opts.big ? 22 : 17, color: team.nameColor || "#fff", cursor: "pointer", lineHeight: 1.1 }} title="Tap to edit total">{totalFor(id)}</div>
@@ -751,9 +751,9 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
             ) : <button onClick={() => setAddingTo("ref")} style={{ width: "100%", marginTop: 6, background: "transparent", border: "1px dashed #1a3050", borderRadius: 6, padding: "5px", color: "#444", fontFamily: "monospace", fontSize: 9, cursor: "pointer", letterSpacing: 1 }}>+ ADD SOURCE</button>}
           </div>
           <div style={{ borderTop: `1px solid ${team.color}33`, paddingTop: 10 }}>
-            <div style={{ fontFamily: "monospace", fontSize: 9, color: team.color, letterSpacing: 2, marginBottom: 8 }}>TEAM MEMBER</div>
+            <div style={{ fontFamily: "monospace", fontSize: 9, color: "#5fe3d0", letterSpacing: 2, marginBottom: 8 }}>TEAM MEMBER</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              {tm.map(s => tile(s, { small: true, showDelete: true }))}
+              {tm.map(s => tile(s, { small: true, showDelete: true, labelColor: "#5fe3d0" }))}
             </div>
             {addingTo === "tm" ? (
               <div style={{ display: "flex", gap: 4, marginTop: 6 }}><input autoFocus value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addStat("tm"); if (e.key === "Escape") setAddingTo(null); }} placeholder="Member name..." style={{ flex: 1, background: "#0f1f38", border: `1px solid ${team.color}66`, borderRadius: 6, padding: "4px 8px", color: "#fff", fontFamily: "monospace", fontSize: 11, outline: "none" }} /><button onClick={() => addStat("tm")} style={{ background: team.color, border: "none", borderRadius: 5, color: "#000", fontWeight: 700, fontSize: 11, padding: "0 8px", cursor: "pointer" }}>+</button></div>
