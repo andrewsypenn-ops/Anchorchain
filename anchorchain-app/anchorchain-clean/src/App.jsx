@@ -11,7 +11,7 @@ const SYNC_KEYS = [
   "anchorchain_v2", "anchorchain_dashboard_v2", "anchorchain_staff_v2",
   "anchorchain_day_defaults_v1", "anchorchain_tenstar_v1",
   "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1",
-  "anchorchain_np_running_v2"
+  "anchorchain_np_running_v2", "anchorchain_np_filled_v1"
 ];
 
 async function cloudLoad() {
@@ -288,6 +288,14 @@ function setStatTotal(date, fieldId, total) {
     localStorage.setItem(NP_RUNNING_KEY, JSON.stringify(all));
   } catch {}
 }
+// Remaining Monday-Friday business days from `date` through end of that month (inclusive of date)
+// Per-date "New Patients filled today" flag, stored as { "2026-06-14": true }
+const NP_FILLED_KEY = "anchorchain_np_filled_v1";
+function getNpFilled(date) { try { const a = JSON.parse(localStorage.getItem(NP_FILLED_KEY) || "{}"); return !!a[date]; } catch { return false; } }
+function setNpFilled(date, val) {
+  try { const a = JSON.parse(localStorage.getItem(NP_FILLED_KEY) || "{}"); if (val) a[date] = true; else delete a[date]; localStorage.setItem(NP_FILLED_KEY, JSON.stringify(a)); } catch {}
+}
+
 // Remaining Monday-Friday business days from `date` through end of that month (inclusive of date)
 function businessDaysLeft(date) {
   const d = new Date(date + "T12:00:00");
@@ -656,7 +664,9 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
   // Monthly running totals for all accumulating stat fields, keyed by field id
   const [totals, setTotals] = useState(() => getStatTotals(date));
   const [addInputs, setAddInputs] = useState({}); // { fieldId: "typed amount" }
-  useEffect(() => { setTotals(getStatTotals(date)); setAddInputs({}); }, [date]);
+  const [filled, setFilled] = useState(() => getNpFilled(date));
+  useEffect(() => { setTotals(getStatTotals(date)); setAddInputs({}); setFilled(getNpFilled(date)); }, [date]);
+  const toggleFilled = () => { const v = !filled; setFilled(v); setNpFilled(date, v); };
   const monthLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const totalFor = (id) => totals[id] || 0;
@@ -730,6 +740,10 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
           {team.name}
         </div>
         {team.subtitle && <div style={{ fontSize: 14, color: "#bbb", fontFamily: "monospace", letterSpacing: 1, marginTop: 1 }}>{team.subtitle}</div>}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+          <div style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: 30, color: filled ? "#4ECDC4" : "#fff" }}>{filled ? 100 : 0}<span style={{ fontSize: 16, color: filled ? "#4ECDC4" : "#555" }}>%</span></div>
+          {filled && <span style={{ fontFamily: "monospace", fontSize: 11, color: "#4ECDC4", letterSpacing: 1 }}>FILLED ✓</span>}
+        </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
           <div style={{ fontSize: 14, color: team.color, fontFamily: "monospace", letterSpacing: 1 }}>LIVE STATS · {monthLabel.toUpperCase()}</div>
           <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
@@ -761,6 +775,9 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
           </div>
         </div>
       )}
+      <button onClick={toggleFilled} style={{ width: "100%", marginTop: 14, background: filled ? "#4ECDC4" : "transparent", border: filled ? "none" : `1.5px solid ${team.color}`, borderRadius: 10, padding: "12px", color: filled ? "#000" : team.color, fontFamily: "sans-serif", fontWeight: 700, fontSize: 15, cursor: "pointer", letterSpacing: 0.5 }}>
+        {filled ? "✓ Filled Today" : "Filled Today"}
+      </button>
     </div>
   );
 }
