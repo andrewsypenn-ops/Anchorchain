@@ -685,15 +685,15 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
   const deleteStat = (id) => { const u = stats.filter(s => s.id !== id); setStats(u); onStatsChange && onStatsChange(u); };
   const addStat = (section) => {
     if (!newLabel.trim()) return;
-    let baseId = section === "ref" ? 619 : section === "tm" ? 650 : 604;
+    let baseId = section === "ref" ? 610 : section === "tm" ? 635 : 604;
     while (stats.find(s => s.id === baseId)) baseId++;
     const u = [...stats, { id: baseId, label: newLabel.trim(), value: "" }];
     setStats(u); onStatsChange && onStatsChange(u);
     setNewLabel(""); setAddingTo(null);
   };
   const top = stats.filter(s => [600, 6001, 601, 602, 603, 604, 605, 606, 607, 608, 609].includes(Number(s.id)));
-  const ref = stats.filter(s => Number(s.id) >= 610 && Number(s.id) <= 649);
-  const tm = stats.filter(s => Number(s.id) >= 650);
+  const ref = stats.filter(s => Number(s.id) >= 610 && Number(s.id) <= 619);
+  const tm = stats.filter(s => Number(s.id) >= 620);
 
   // A running-total tile: shows the month total + a small +add row
   const tile = (s, opts = {}) => {
