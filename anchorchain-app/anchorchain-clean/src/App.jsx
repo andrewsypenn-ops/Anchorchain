@@ -11,7 +11,7 @@ const SYNC_KEYS = [
   "anchorchain_v2", "anchorchain_dashboard_v2", "anchorchain_staff_v2",
   "anchorchain_day_defaults_v1", "anchorchain_tenstar_v1",
   "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1",
-  "anchorchain_np_running_v1"
+  "anchorchain_np_running_v2"
 ];
 
 async function cloudLoad() {
@@ -275,13 +275,31 @@ function saveDashboard(date, d) {
   } catch {}
 }
 const STAFF_KEY = "anchorchain_staff_v2";
-// Monthly running total for New Patients, stored as { "2026-06": 125, "2026-05": 98 }
-const NP_RUNNING_KEY = "anchorchain_np_running_v1";
+// Monthly running totals for stat fields, stored as { "2026-06": { "600": 110, "610": 45, ... }, ... }
+const NP_RUNNING_KEY = "anchorchain_np_running_v2";
 function monthKeyFor(date) { return date.slice(0, 7); } // "2026-06-14" -> "2026-06"
-function loadNpRunning() { try { return JSON.parse(localStorage.getItem(NP_RUNNING_KEY) || "{}"); } catch { return {}; } }
-function getNpRunning(date) { const all = loadNpRunning(); return all[monthKeyFor(date)] || 0; }
-function setNpRunning(date, total) {
-  try { const all = loadNpRunning(); all[monthKeyFor(date)] = total; localStorage.setItem(NP_RUNNING_KEY, JSON.stringify(all)); } catch {}
+function loadStatTotals() { try { return JSON.parse(localStorage.getItem(NP_RUNNING_KEY) || "{}"); } catch { return {}; } }
+function getStatTotals(date) { const all = loadStatTotals(); return all[monthKeyFor(date)] || {}; }
+function setStatTotal(date, fieldId, total) {
+  try {
+    const all = loadStatTotals();
+    const mk = monthKeyFor(date);
+    if (!all[mk]) all[mk] = {};
+    all[mk][fieldId] = total;
+    localStorage.setItem(NP_RUNNING_KEY, JSON.stringify(all));
+  } catch {}
+}
+// Remaining Monday-Friday business days from `date` through end of that month (inclusive of date)
+function businessDaysLeft(date) {
+  const d = new Date(date + "T12:00:00");
+  const year = d.getFullYear(), month = d.getMonth();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let day = d.getDate(); day <= lastDay; day++) {
+    const wd = new Date(year, month, day).getDay();
+    if (wd >= 1 && wd <= 5) count++;
+  }
+  return count;
 }
 const DAY_DEFAULTS_KEY = "anchorchain_day_defaults_v1";
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -636,25 +654,35 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
   useEffect(() => setStats(team.stats || []), [team]);
   const [addingTo, setAddingTo] = useState(null);
   const [newLabel, setNewLabel] = useState("");
-  // Monthly running total for New Patients
-  const [npTotal, setNpTotal] = useState(() => getNpRunning(date));
-  const [addAmount, setAddAmount] = useState("");
-  useEffect(() => { setNpTotal(getNpRunning(date)); }, [date]);
-  const addToNpTotal = () => {
-    const n = parseInt(addAmount.replace(/[^0-9]/g, ""), 10);
-    if (isNaN(n)) return;
-    const nt = npTotal + n;
-    setNpTotal(nt); setNpRunning(date, nt); setAddAmount("");
-  };
-  const editNpTotal = () => {
-    const cur = window.prompt("Edit the month-to-date New Patients total:", String(npTotal));
-    if (cur === null) return;
-    const n = parseInt(cur.replace(/[^0-9]/g, ""), 10);
-    if (isNaN(n)) return;
-    setNpTotal(n); setNpRunning(date, n);
-  };
+  // Monthly running totals for all accumulating stat fields, keyed by field id
+  const [totals, setTotals] = useState(() => getStatTotals(date));
+  const [addInputs, setAddInputs] = useState({}); // { fieldId: "typed amount" }
+  useEffect(() => { setTotals(getStatTotals(date)); setAddInputs({}); }, [date]);
   const monthLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const update = (id, val) => { const u = stats.map(s => s.id === id ? { ...s, value: val } : s); setStats(u); onStatsChange && onStatsChange(u); };
+
+  const totalFor = (id) => totals[id] || 0;
+  const addTo = (id) => {
+    const raw = addInputs[id] || "";
+    const n = parseInt(String(raw).replace(/[^0-9-]/g, ""), 10);
+    if (isNaN(n)) return;
+    const nt = totalFor(id) + n;
+    const u = { ...totals, [id]: nt };
+    setTotals(u); setStatTotal(date, id, nt);
+    setAddInputs(prev => ({ ...prev, [id]: "" }));
+  };
+  const editTotal = (id, label) => {
+    const cur = window.prompt("Edit " + label + " total for " + monthLabel + ":", String(totalFor(id)));
+    if (cur === null) return;
+    const n = parseInt(cur.replace(/[^0-9-]/g, ""), 10);
+    if (isNaN(n)) return;
+    const u = { ...totals, [id]: n };
+    setTotals(u); setStatTotal(date, id, n);
+  };
+
+  // Field id 603 = "Days Left In Month" is auto-calculated, not accumulated
+  const DAYS_LEFT_ID = 603;
+  const daysLeft = businessDaysLeft(date);
+
   const deleteStat = (id) => { const u = stats.filter(s => s.id !== id); setStats(u); onStatsChange && onStatsChange(u); };
   const addStat = (section) => {
     if (!newLabel.trim()) return;
@@ -667,7 +695,34 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
   const top = stats.filter(s => [600, 6001, 601, 602, 603, 604, 605, 606, 607, 608, 609].includes(Number(s.id)));
   const ref = stats.filter(s => Number(s.id) >= 610 && Number(s.id) <= 649);
   const tm = stats.filter(s => Number(s.id) >= 650);
-  const inp = (s, big) => <input value={s.value} onChange={e => update(s.id, e.target.value)} placeholder="—" style={{ background: "transparent", border: "none", borderBottom: `1px solid ${team.color}44`, color: team.nameColor || "#fff", fontFamily: big ? "sans-serif" : "monospace", fontWeight: 700, fontSize: big ? 22 : 14, width: "100%", outline: "none", padding: "2px 0" }} />;
+
+  // A running-total tile: shows the month total + a small +add row
+  const tile = (s, opts = {}) => {
+    const id = s.id;
+    if (Number(id) === DAYS_LEFT_ID) {
+      return (
+        <div key={id} style={{ background: "#0f1f38", border: `1px solid ${team.color}33`, borderRadius: 8, padding: "8px 10px" }}>
+          <div style={{ fontFamily: "monospace", fontSize: 8, color: "#555", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase" }}>{s.label} (M-F)</div>
+          <div style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: opts.big ? 22 : 18, color: team.nameColor || "#fff" }}>{daysLeft}</div>
+          <div style={{ fontFamily: "monospace", fontSize: 7, color: "#444", marginTop: 2 }}>auto-calculated</div>
+        </div>
+      );
+    }
+    return (
+      <div key={id} style={{ background: "#0f1f38", border: opts.showDelete ? "1px solid #1a3050" : `1px solid ${team.color}33`, borderRadius: opts.small ? 6 : 8, padding: opts.small ? "6px 8px" : "8px 10px", position: "relative" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ fontFamily: "monospace", fontSize: 8, color: opts.small ? "#444" : "#555", letterSpacing: 1, marginBottom: 3, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{s.label}</div>
+          {opts.showDelete && <span onClick={() => deleteStat(id)} style={{ color: "#3a3a5a", fontSize: 11, cursor: "pointer", lineHeight: 1, marginLeft: 4 }}>×</span>}
+        </div>
+        <div onClick={() => editTotal(id, s.label)} style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: opts.big ? 22 : 17, color: team.nameColor || "#fff", cursor: "pointer", lineHeight: 1.1 }} title="Tap to edit total">{totalFor(id)}</div>
+        <div style={{ display: "flex", gap: 3, alignItems: "center", marginTop: 5 }}>
+          <input value={addInputs[id] || ""} onChange={e => setAddInputs(prev => ({ ...prev, [id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && addTo(id)} placeholder="+add" inputMode="numeric" style={{ flex: 1, minWidth: 0, background: "#0a1628", border: `1px solid ${team.color}33`, borderRadius: 5, color: "#fff", fontFamily: "monospace", fontSize: 11, padding: "4px 6px", outline: "none", boxSizing: "border-box" }} />
+          <button onClick={() => addTo(id)} style={{ background: team.color, border: "none", borderRadius: 5, color: "#000", fontWeight: 700, fontSize: 12, padding: "4px 8px", cursor: "pointer", flexShrink: 0 }}>+</button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="shimmer-orange" style={{ width: isMobile ? "92vw" : 358, maxWidth: isMobile ? "92vw" : "none", flexShrink: 0, background: "#0a1628", border: "1.5px solid #1a3050", borderRadius: 16, padding: isMobile ? "18px 14px" : "20px 18px", minHeight: 202, overflow: "visible", boxSizing: "border-box" }}>
       <div style={{ marginBottom: 14 }}>
@@ -677,33 +732,20 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
         </div>
         {team.subtitle && <div style={{ fontSize: 14, color: "#bbb", fontFamily: "monospace", letterSpacing: 1, marginTop: 1 }}>{team.subtitle}</div>}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
-          <div style={{ fontSize: 14, color: team.color, fontFamily: "monospace", letterSpacing: 1 }}>LIVE STATS</div>
+          <div style={{ fontSize: 14, color: team.color, fontFamily: "monospace", letterSpacing: 1 }}>LIVE STATS · {monthLabel.toUpperCase()}</div>
           <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
         </div>
       </div>
-      <div style={{ background: "#0f1f38", border: `1.5px solid ${team.color}55`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontFamily: "monospace", fontSize: 9, color: "#888", letterSpacing: 1 }}>NEW PATIENTS · {monthLabel.toUpperCase()}</div>
-          <span onClick={editNpTotal} style={{ fontFamily: "monospace", fontSize: 9, color: "#555", cursor: "pointer", textDecoration: "underline" }}>edit</span>
-        </div>
-        <div style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: 38, color: team.nameColor || "#fff", lineHeight: 1, marginBottom: 10 }}>{npTotal}</div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input value={addAmount} onChange={e => setAddAmount(e.target.value)} onKeyDown={e => e.key === "Enter" && addToNpTotal()} placeholder="+ add today's count" inputMode="numeric" style={{ flex: 1, background: "#0a1628", border: `1px solid ${team.color}44`, borderRadius: 8, color: "#fff", fontFamily: "monospace", fontSize: 13, padding: "8px 10px", outline: "none", boxSizing: "border-box" }} />
-          <button onClick={addToNpTotal} style={{ background: team.color, border: "none", borderRadius: 8, color: "#000", fontWeight: 700, fontSize: 16, padding: "8px 14px", cursor: "pointer", flexShrink: 0 }}>+</button>
-        </div>
-      </div>
+      {top[0] && <div style={{ marginBottom: 14 }}>{tile(top[0], { big: true })}</div>}
       {!collapsed && (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            {top.slice(0, 2).map(s => <div key={s.id} style={{ background: "#0f1f38", border: `1px solid ${team.color}33`, borderRadius: 8, padding: "10px" }}><div style={{ fontFamily: "monospace", fontSize: 8, color: "#555", letterSpacing: 1, marginBottom: 4, textTransform: "uppercase" }}>{s.label}</div>{inp(s, true)}</div>)}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-            {top.slice(2).map(s => <div key={s.id} style={{ background: "#0f1f38", border: "1px solid #1a3050", borderRadius: 8, padding: "7px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}><div style={{ fontFamily: "monospace", fontSize: 9, color: "#555", textTransform: "uppercase", flex: 1 }}>{s.label}</div><input value={s.value} onChange={e => update(s.id, e.target.value)} placeholder="—" style={{ background: "transparent", border: "none", borderBottom: `1px solid ${team.color}44`, color: team.nameColor || "#fff", fontFamily: "monospace", fontWeight: 600, fontSize: 13, width: 60, outline: "none", padding: "1px 0", textAlign: "right" }} /></div>)}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {top.slice(1).map(s => tile(s, {}))}
           </div>
           <div style={{ borderTop: `1px solid ${team.color}33`, paddingTop: 10, marginBottom: 10 }}>
             <div style={{ fontFamily: "monospace", fontSize: 9, color: team.color, letterSpacing: 2, marginBottom: 8 }}>REFERRAL SOURCE</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              {ref.map(s => <div key={s.id} style={{ background: "#0f1f38", border: "1px solid #1a3050", borderRadius: 6, padding: "6px 8px", position: "relative" }}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ fontFamily: "monospace", fontSize: 8, color: "#444", marginBottom: 3, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</div><span onClick={() => deleteStat(s.id)} style={{ color: "#3a3a5a", fontSize: 11, cursor: "pointer", lineHeight: 1 }} onMouseEnter={e => e.target.style.color = "#ff4444"} onMouseLeave={e => e.target.style.color = "#3a3a5a"}>×</span></div>{inp(s, false)}</div>)}
+              {ref.map(s => tile(s, { small: true, showDelete: true }))}
             </div>
             {addingTo === "ref" ? (
               <div style={{ display: "flex", gap: 4, marginTop: 6 }}><input autoFocus value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addStat("ref"); if (e.key === "Escape") setAddingTo(null); }} placeholder="Source name..." style={{ flex: 1, background: "#0f1f38", border: `1px solid ${team.color}66`, borderRadius: 6, padding: "4px 8px", color: "#fff", fontFamily: "monospace", fontSize: 11, outline: "none" }} /><button onClick={() => addStat("ref")} style={{ background: team.color, border: "none", borderRadius: 5, color: "#000", fontWeight: 700, fontSize: 11, padding: "0 8px", cursor: "pointer" }}>+</button></div>
@@ -712,7 +754,7 @@ function StatCard({ team, date, onStatsChange, isMobile }) {
           <div style={{ borderTop: `1px solid ${team.color}33`, paddingTop: 10 }}>
             <div style={{ fontFamily: "monospace", fontSize: 9, color: team.color, letterSpacing: 2, marginBottom: 8 }}>TEAM MEMBER</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              {tm.map(s => <div key={s.id} style={{ background: "#0f1f38", border: "1px solid #1a3050", borderRadius: 6, padding: "6px 8px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ fontFamily: "monospace", fontSize: 8, color: "#444", marginBottom: 3, textTransform: "uppercase" }}>{s.label}</div><span onClick={() => deleteStat(s.id)} style={{ color: "#3a3a5a", fontSize: 11, cursor: "pointer", lineHeight: 1 }} onMouseEnter={e => e.target.style.color = "#ff4444"} onMouseLeave={e => e.target.style.color = "#3a3a5a"}>×</span></div>{inp(s, false)}</div>)}
+              {tm.map(s => tile(s, { small: true, showDelete: true }))}
             </div>
             {addingTo === "tm" ? (
               <div style={{ display: "flex", gap: 4, marginTop: 6 }}><input autoFocus value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addStat("tm"); if (e.key === "Escape") setAddingTo(null); }} placeholder="Member name..." style={{ flex: 1, background: "#0f1f38", border: `1px solid ${team.color}66`, borderRadius: 6, padding: "4px 8px", color: "#fff", fontFamily: "monospace", fontSize: 11, outline: "none" }} /><button onClick={() => addStat("tm")} style={{ background: team.color, border: "none", borderRadius: 5, color: "#000", fontWeight: 700, fontSize: 11, padding: "0 8px", cursor: "pointer" }}>+</button></div>
