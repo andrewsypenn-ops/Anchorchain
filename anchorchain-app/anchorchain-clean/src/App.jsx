@@ -1411,12 +1411,35 @@ export default function App() {
   const [pwError, setPwError] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [cloudLoaded, setCloudLoaded] = useState(false);
-  const [allData, setAllData] = useState(() => loadAllData());
+  const [allData, setAllData] = useState(() => {
+    const data = loadAllData();
+    // One-time cleanup: fix duplicate task IDs within each team for each day
+    let changed = false;
+    let counter = 950000 + (Date.now() % 40000000);
+    Object.keys(data).forEach(dk => {
+      if (!Array.isArray(data[dk])) return;
+      data[dk] = data[dk].map(team => {
+        if (!team.tasks) return team;
+        const seen = new Set();
+        const tasks = team.tasks.map(tk => {
+          if (seen.has(tk.id)) { changed = true; return { ...tk, id: counter++ }; }
+          seen.add(tk.id);
+          return tk;
+        });
+        return { ...team, tasks };
+      });
+    });
+    if (changed) { try { saveAllData(data); } catch {} }
+    return data;
+  });
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [filledTick, setFilledTick] = useState(0);
   const [showCal, setShowCal] = useState(false);
   const [zoomed, setZoomed] = useState(false);
-  const [nextId, setNextId] = useState(900000);
+  const [nextId, setNextId] = useState(() => {
+    // Base on current time to guarantee uniqueness across sessions/devices
+    return 900000 + (Date.now() % 90000000);
+  });
   const scrollRef = useRef(null);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth < 768);
   useEffect(() => {
