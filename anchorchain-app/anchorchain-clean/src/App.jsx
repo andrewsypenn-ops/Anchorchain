@@ -1426,15 +1426,18 @@ export default function App() {
       { id: 404, label: "Hooligans! Collaborate + Galvanize!" },
       { id: 405, label: "Go Karaling!" },
     ];
+    // One-time hard reset of Growth Gang, controlled by a version flag
+    let ggReset = false;
+    try { ggReset = localStorage.getItem("anchorchain_gg_reset_v2") === "yes"; } catch {}
+
     Object.keys(data).forEach(dk => {
       if (!Array.isArray(data[dk])) return;
       data[dk] = data[dk].map(team => {
         if (!team.tasks) return team;
-        // Reset Growth Gang (id 4) to the clean fixed list, preserving done state by position
-        if (team.id === 4) {
+        // Hard reset Growth Gang (id 4) to the clean fixed list (only once, via version flag)
+        if (team.id === 4 && !ggReset) {
           changed = true;
-          const oldDone = team.tasks.map(t => !!t.done);
-          return { ...team, tasks: GROWTH_GANG_TASKS.map((t, i) => ({ ...t, done: oldDone[i] || false })) };
+          return { ...team, tasks: GROWTH_GANG_TASKS.map(x => ({ ...x, done: false })) };
         }
         const seen = new Set();
         const tasks = team.tasks.map(tk => {
@@ -1446,14 +1449,17 @@ export default function App() {
       });
     });
     // Also fix the saved template's Growth Gang
-    try {
-      const tmplRaw = localStorage.getItem("anchorchain_template_v1");
-      if (tmplRaw) {
-        const tmpl = JSON.parse(tmplRaw);
-        const fixed = tmpl.map(t => t.id === 4 ? { ...t, tasks: GROWTH_GANG_TASKS.map(x => ({ ...x, done: false })) } : t);
-        localStorage.setItem("anchorchain_template_v1", JSON.stringify(fixed));
-      }
-    } catch {}
+    if (!ggReset) {
+      try {
+        const tmplRaw = localStorage.getItem("anchorchain_template_v1");
+        if (tmplRaw) {
+          const tmpl = JSON.parse(tmplRaw);
+          const fixed = tmpl.map(t => t.id === 4 ? { ...t, tasks: GROWTH_GANG_TASKS.map(x => ({ ...x, done: false })) } : t);
+          localStorage.setItem("anchorchain_template_v1", JSON.stringify(fixed));
+        }
+      } catch {}
+      try { localStorage.setItem("anchorchain_gg_reset_v2", "yes"); } catch {}
+    }
     if (changed) { try { saveAllData(data); } catch {} }
     return data;
   });
@@ -1477,7 +1483,38 @@ export default function App() {
   useEffect(() => {
     if (!authed || !userName) return;
     cloudLoad().then(ok => {
-      if (ok) setAllData(loadAllData());
+      if (ok) {
+        // Re-apply Growth Gang clean-up after cloud data loads (cloud may carry old messy data)
+        const data = loadAllData();
+        const GG = [
+          { id: 401, label: "GMB! Take a photo/vid" },
+          { id: 402, label: "Check Social Media" },
+          { id: 403, label: "10-Star Experience (2)" },
+          { id: 404, label: "Hooligans! Collaborate + Galvanize!" },
+          { id: 405, label: "Go Karaling!" },
+        ];
+        let counter = 950000 + (Date.now() % 40000000);
+        Object.keys(data).forEach(dk => {
+          if (!Array.isArray(data[dk])) return;
+          data[dk] = data[dk].map(team => {
+            if (!team.tasks) return team;
+            if (team.id === 4) {
+              // Keep done-state for the 5 known tasks by matching id, else fresh
+              const doneById = {};
+              team.tasks.forEach(t => { doneById[t.id] = !!t.done; });
+              return { ...team, tasks: GG.map(x => ({ ...x, done: doneById[x.id] || false })) };
+            }
+            const seen = new Set();
+            const tasks = team.tasks.map(tk => {
+              if (seen.has(tk.id)) return { ...tk, id: counter++ };
+              seen.add(tk.id); return tk;
+            });
+            return { ...team, tasks };
+          });
+        });
+        try { saveAllData(data); } catch {}
+        setAllData(data);
+      }
       setCloudLoaded(true);
     });
   }, [authed, userName]);
