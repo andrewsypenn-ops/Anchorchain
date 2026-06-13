@@ -320,11 +320,39 @@ async function fetchNPData(date) {
   }
 }
 
-function getProgress(tasks, teamId) {
+function getProgress(tasks, teamId, date) {
   const staffIds = teamId ? (TASK_IDS_WITH_STAFF[teamId] || []) : [];
   const real = tasks.filter(t => !t.header && !t.isNote && !staffIds.includes(t.id));
-  if (!real.length) return 0;
-  return Math.round((real.filter(t => t.done).length / real.length) * 100);
+
+  // Count staff checkmarks for staff-tasks (doctors checked off across all staff-tasks)
+  let staffTotal = 0, staffDone = 0;
+  if (staffIds.length && date) {
+    try {
+      const staffData = JSON.parse(localStorage.getItem(STAFF_KEY) || "{}");
+      const dayDefaults = JSON.parse(localStorage.getItem(DAY_DEFAULTS_KEY) || "{}");
+      const day = new Date(date + "T12:00:00").getDay();
+      const scheduled = STAFF.filter(name => DAY_SCHEDULE[name] && DAY_SCHEDULE[name].includes(day));
+      staffIds.forEach(tid => {
+        const key = `${date}_${teamId}_${tid}`;
+        const defKey = `default_${day}_${teamId}_${tid}`;
+        const entry = staffData[key] || {};
+        const def = dayDefaults[defKey] || {};
+        const hidden = entry.hidden !== undefined ? entry.hidden : (def.hidden || []);
+        const extras = entry.extras !== undefined ? entry.extras : (def.extras || []);
+        const done = entry.done || {};
+        const people = [...scheduled.filter(n => !hidden.includes(n)), ...extras];
+        people.forEach(name => {
+          staffTotal++;
+          if (done[name] === true || (done[name] && done[name].checked)) staffDone++;
+        });
+      });
+    } catch {}
+  }
+
+  const totalItems = real.length + staffTotal;
+  if (!totalItems) return 0;
+  const doneItems = real.filter(t => t.done).length + staffDone;
+  return Math.round((doneItems / totalItems) * 100);
 }
 function getDayPct(teams) {
   const all = teams.flatMap(t => (t.tasks || []).filter(tk => !tk.header && !tk.isNote));
@@ -365,7 +393,7 @@ function SectionHeader({ label, color }) {
 }
 
 // Staff row component
-function StaffRow({ teamId, taskId, date, color }) {
+function StaffRow({ teamId, taskId, date, color, onStaffChange }) {
   const key = `${date}_${teamId}_${taskId}`;
   const day = new Date(date + "T12:00:00").getDay();
   const scheduled = STAFF.filter(name => DAY_SCHEDULE[name] && DAY_SCHEDULE[name].includes(day));
@@ -390,6 +418,21 @@ function StaffRow({ teamId, taskId, date, color }) {
   const [done, setDone] = useState(() => {
     try { const d = JSON.parse(localStorage.getItem(STAFF_KEY) || "{}"); return (d[key] && d[key].done) || {}; } catch { return {}; }
   });
+
+  // When the date (or task) changes, reload this row's data for that specific day
+  useEffect(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem(STAFF_KEY) || "{}");
+      const defaults = JSON.parse(localStorage.getItem(DAY_DEFAULTS_KEY) || "{}");
+      const entry = d[key] || {};
+      setExtras(entry.extras !== undefined ? entry.extras : ((defaults[defaultKey] && defaults[defaultKey].extras) || []));
+      setHidden(entry.hidden !== undefined ? entry.hidden : ((defaults[defaultKey] && defaults[defaultKey].hidden) || []));
+      setDone(entry.done || {});
+    } catch {
+      setExtras([]); setHidden([]); setDone({});
+    }
+  }, [key, defaultKey]);
+
   const [saved, setSaved] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -403,9 +446,12 @@ function StaffRow({ teamId, taskId, date, color }) {
   };
 
   const toggle = (name) => {
-    const nd = { ...done, [name]: !done[name] };
+    const currentUser = (() => { try { return localStorage.getItem("anchorchain_username") || ""; } catch { return ""; } })();
+    const isDone = done[name] && done[name].checked;
+    const nd = { ...done, [name]: isDone ? { checked: false } : { checked: true, by: currentUser } };
     setDone(nd);
     persist(extras, nd, hidden);
+    if (onStaffChange) onStaffChange();
   };
 
   const add = () => {
@@ -415,6 +461,7 @@ function StaffRow({ teamId, taskId, date, color }) {
     persist(ne, done, hidden);
     setNewName("");
     setAdding(false);
+    if (onStaffChange) onStaffChange();
   };
 
   const remove = (name, isExtra) => {
@@ -426,9 +473,13 @@ function StaffRow({ teamId, taskId, date, color }) {
     setHidden(nh);
     setDone(nd);
     persist(ne, nd, nh);
+    if (onStaffChange) onStaffChange();
   };
 
   const all = [...scheduled.filter(n => !hidden.includes(n)).map(n => ({ name: n, isExtra: false })), ...extras.map(n => ({ name: n, isExtra: true }))];
+  // Normalize: old format stored boolean, new format stores {checked, by}
+  const isChecked = (name) => done[name] === true || (done[name] && done[name].checked);
+  const checkedBy = (name) => (done[name] && done[name].by) || "";
 
   const saveAsDefault = () => {
     const defaults = loadDayDefaults();
@@ -441,11 +492,12 @@ function StaffRow({ teamId, taskId, date, color }) {
   return (
     <div style={{ paddingLeft: 20, marginTop: 4, marginBottom: 4, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       {all.map(({ name, isExtra }) => (
-        <div key={name + isExtra} style={{ display: "flex", alignItems: "center", gap: 2, background: "#0f1f38", borderRadius: 6, padding: "3px 6px", border: `1px solid ${done[name] ? color + "66" : "#1a3050"}` }}>
-          <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${done[name] ? color : "#3a3a5a"}`, background: done[name] ? color : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} onClick={() => toggle(name)}>
-            {done[name] && <svg width="8" height="6" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+        <div key={name + isExtra} style={{ display: "flex", alignItems: "center", gap: 2, background: "#0f1f38", borderRadius: 6, padding: "3px 6px", border: `1px solid ${isChecked(name) ? color + "66" : "#1a3050"}` }}>
+          <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${isChecked(name) ? color : "#3a3a5a"}`, background: isChecked(name) ? color : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }} onClick={() => toggle(name)}>
+            {isChecked(name) && <svg width="8" height="6" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
           </div>
-          <span style={{ fontFamily: "monospace", fontSize: 12, color: done[name] ? color : "#aaa", textDecoration: done[name] ? "line-through" : "none", cursor: "pointer", userSelect: "none" }} onClick={() => toggle(name)}>{name}</span>
+          <span style={{ fontFamily: "monospace", fontSize: 12, color: isChecked(name) ? color : "#aaa", textDecoration: isChecked(name) ? "line-through" : "none", cursor: "pointer", userSelect: "none" }} onClick={() => toggle(name)}>{name}</span>
+          {isChecked(name) && checkedBy(name) && <span style={{ fontFamily: "monospace", fontSize: 10, color: "#888", marginLeft: 2 }}>✓{checkedBy(name)}</span>}
           <button onClick={() => remove(name, isExtra)} style={{ background: "#ff4444", border: "none", color: "#fff", fontSize: 14, cursor: "pointer", padding: "2px 6px", borderRadius: 4, fontWeight: 700 }}>X</button>
         </div>
       ))}
@@ -464,7 +516,8 @@ function StaffRow({ teamId, taskId, date, color }) {
 }
 
 function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDeleteTask, isMobile }) {
-  const pct = getProgress(team.tasks, team.id);
+  const [staffTick, setStaffTick] = useState(0);
+  const pct = getProgress(team.tasks, team.id, date);
   const complete = pct === 100;
   const [adding, setAdding] = useState(false);
   const [newTask, setNewTask] = useState("");
@@ -548,7 +601,7 @@ function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDe
                     )}
                   </div>
                   {taskHasStaff && (
-                    <StaffRow teamId={team.id} taskId={task.id} date={date} color={team.color} />
+                    <StaffRow teamId={team.id} taskId={task.id} date={date} color={team.color} onStaffChange={() => setStaffTick(t => t + 1)} />
                   )}
                 </div>
               );
@@ -634,7 +687,8 @@ function StatCard({ team, onStatsChange, isMobile }) {
 }
 
 function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditLabel, isMobile }) {
-  const pct = getProgress(team.tasks, team.id);
+  const [staffTick, setStaffTick] = useState(0);
+  const pct = getProgress(team.tasks, team.id, date);
   const complete = pct === 100;
   const [stats, setStats] = useState(team.stats || []);
   const [notes, setNotes] = useState({ 721: "", 722: "", 723: "" });
@@ -696,7 +750,7 @@ function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditL
                     <button onClick={e => { e.stopPropagation(); onDeleteTask(task.id); }} style={{ background: "none", border: "none", color: "#3a3a5a", fontSize: 18, cursor: "pointer", padding: "0 2px", lineHeight: 1, fontWeight: 700, flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.color = "#ff4444"} onMouseLeave={e => e.currentTarget.style.color = "#3a3a5a"}>×</button>
                   </div>
                   {rmHasStaff && (
-                    <StaffRow teamId={7} taskId={task.id} date={date} color={team.color} />
+                    <StaffRow teamId={7} taskId={task.id} date={date} color={team.color} onStaffChange={() => setStaffTick(t => t + 1)} />
                   )}
                 </div>
               );
