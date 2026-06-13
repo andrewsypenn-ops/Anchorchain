@@ -172,9 +172,9 @@ const TEMPLATE_TEAMS = [
   {
     id: 5, name: "Chaos Coordinators", subtitle: "boss ladies", color: "#A78BFA", nameColor: "#FF00FF",
     tasks: [
-      { id: 501, label: "Final review", done: false },
-      { id: 502, label: "Sign-off", done: false },
-      { id: 503, label: "All clear", done: false },
+      { id: 501, label: "Assign resources / Personnel to tasks", done: false },
+      { id: 502, label: "Top right Production number", done: false },
+      { id: 503, label: "Proactiveness / Plan", done: false },
     ],
   },
   {
@@ -404,9 +404,12 @@ function getProgress(tasks, teamId, date) {
 }
 function getDayPct(teams, date) {
   let total = 0, done = 0;
+  let allCardsComplete = true; // every card must be 100% for overall to reach 100
   teams.forEach(t => {
     const staffIds = t.id ? (TASK_IDS_WITH_STAFF[t.id] || []) : [];
     const real = (t.tasks || []).filter(tk => !tk.header && !tk.isNote && !staffIds.includes(tk.id));
+    let cardTotal = real.length;
+    let cardDone = real.filter(tk => tk.done).length;
     total += real.length;
     done += real.filter(tk => tk.done).length;
     // Add staff (doctor) checkmarks for this team's staff-tasks
@@ -426,20 +429,25 @@ function getDayPct(teams, date) {
           const dn = entry.done || {};
           const people = [...scheduled.filter(n => !hidden.includes(n)), ...extras];
           people.forEach(name => {
-            total++;
-            if (dn[name] === true || (dn[name] && dn[name].checked)) done++;
+            total++; cardTotal++;
+            if (dn[name] === true || (dn[name] && dn[name].checked)) { done++; cardDone++; }
           });
         });
       } catch {}
     }
+    // This card counts as complete only if it has items and they're all done
+    if (cardTotal > 0 && cardDone < cardTotal) allCardsComplete = false;
   });
   // Include the New Patients "Filled Today" as one unit toward the overall
   if (date) {
     total += 1;
-    if (getNpFilled(date)) done += 1;
+    if (getNpFilled(date)) done += 1; else allCardsComplete = false;
   }
   if (!total) return 0;
-  return Math.round((done / total) * 100);
+  let pct = Math.round((done / total) * 100);
+  // Don't allow the overall to show 100% unless every card is fully complete
+  if (pct >= 100 && !allCardsComplete) pct = 99;
+  return pct;
 }
 
 function Checkmark() {
@@ -696,7 +704,7 @@ function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDe
                   <button onClick={() => { if (newTask.trim()) { onAddTask(newTask.trim()); setNewTask(""); setAdding(false); } }} style={{ background: team.color, border: "none", borderRadius: 6, color: "#000", fontWeight: 700, fontSize: 12, padding: "0 10px", cursor: "pointer" }}>+</button>
                 </div>
               : <button onClick={() => setAdding(true)} style={{ width: "100%", background: "transparent", border: "1px dashed #1a3050", borderRadius: 8, padding: "7px", color: "#444", fontFamily: "monospace", fontSize: 10, cursor: "pointer", letterSpacing: 1 }} onMouseEnter={e => { e.target.style.borderColor = team.color; e.target.style.color = team.color; }} onMouseLeave={e => { e.target.style.borderColor = "#1a3050"; e.target.style.color = "#444"; }}>+ ADD TASK</button>}
-            {(team.id === 4 || team.id === 3) && onFixTasks && (
+            {(team.id === 4 || team.id === 3 || team.id === 5) && onFixTasks && (
               <button onClick={onFixTasks} style={{ width: "100%", marginTop: 8, background: "transparent", border: `1px solid ${team.color}66`, borderRadius: 8, padding: "7px", color: team.color, fontFamily: "monospace", fontSize: 10, cursor: "pointer", letterSpacing: 1 }}>↺ RESET TO STANDARD TASKS</button>
             )}
           </div>
@@ -1670,6 +1678,11 @@ export default function App() {
       { id: 301, label: "Fill holes! NP + Doc Side + Move pts!" },
       { id: 302, label: "Diagnose!" },
       { id: 303, label: "Overjet for possible SRP" },
+    ],
+    5: [
+      { id: 501, label: "Assign resources / Personnel to tasks" },
+      { id: 502, label: "Top right Production number" },
+      { id: 503, label: "Proactiveness / Plan" },
     ],
     4: [
       { id: 401, label: "GMB! Take a photo/vid" },
