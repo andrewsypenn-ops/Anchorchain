@@ -237,32 +237,22 @@ const TEMPLATE_TEAMS = [
       {
         id: "sched", title: "Scheduling - Follow Up Tasks", color: "#1a2f5a",
         cols: ["Team Member", "Total $", "$ Per Attempt", "Attempts", "Contacted", "%", "Successes", "%"],
-        rows: [
-          { id: "s1", cells: ["Kara", "$260", "$87", "3", "3", "100%", "2", "67%"] },
-        ],
+        rows: [],
       },
       {
         id: "other", title: "Other", color: "#1a2f5a",
         cols: ["Team Member", "Attempts", "Contacted", "%", "Completed", "%"],
-        rows: [
-          { id: "o1", cells: ["Julia", "1", "1", "100%", "1", "100%"] },
-        ],
+        rows: [],
       },
       {
         id: "broken", title: "Unscheduled Broken Appointment", color: "#1a9c4a",
         cols: ["Team Member", "Schedule $", "$ Per Attempt", "Attempts", "Contacted", "%", "Completed", "%", "Patients"],
-        rows: [
-          { id: "b1", cells: ["Leeza", "$3,131", "$1,044", "3", "3", "100%", "2", "67%", "2"] },
-        ],
+        rows: [],
       },
       {
         id: "unsched", title: "Unscheduled Treatment", color: "#4a7c1f",
         cols: ["Team Member", "Total $", "$ Per Attempt", "Attempts", "Contacted", "%", "Successes", "%"],
-        rows: [
-          { id: "u1", cells: ["Kara", "$6,485", "$540", "12", "7", "58%", "7", "100%"] },
-          { id: "u2", cells: ["SheilaTX", "$9,809", "$1,226", "8", "8", "100%", "8", "100%"] },
-          { id: "u3", cells: ["Leeza", "$1,405", "$1,405", "1", "1", "100%", "1", "100%"] },
-        ],
+        rows: [],
       },
     ],
   },
@@ -998,7 +988,7 @@ function WinOfTheDay({ date, userName }) {
   );
 }
 
-function CEODashboard({ yesterdayPct, streak, date }) {
+function CEODashboard({ yesterdayPct, streak, date, onScorecardData }) {
   const blankMetrics = {
     production: { value: "", goal: "" },
     scheduled: { value: "", goal: "" },
@@ -1056,6 +1046,25 @@ function CEODashboard({ yesterdayPct, streak, date }) {
                   saveDashboard(date, m);
                   return m;
                 });
+              }
+              // If this is the Scheduled Today card, also read the full scorecard from the same photo
+              if (cardKey === "scheduled" && onScorecardData) {
+                try {
+                  const scRes = await fetch("/api/read-number", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageBase64: base64, mediaType: "image/jpeg", kind: "scorecard" })
+                  });
+                  const scData = await scRes.json();
+                  if (scData.sections) {
+                    onScorecardData(scData.sections);
+                    alert("Scorecard updated for " + new Date(date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) + " ✓");
+                  } else {
+                    alert("Filled the total, but couldn't read the scorecard table. Details: " + (scData.debug || "unknown"));
+                  }
+                } catch (scErr) {
+                  alert("Filled the total, but the scorecard read failed: " + (scErr.message || scErr));
+                }
               }
               setPhotoReading(null);
             } else {
@@ -1450,7 +1459,18 @@ export default function App() {
           </div>
         </div>
 
-        <CEODashboard yesterdayPct={yesterdayPct} streak={streak} date={selectedDate} />
+        <CEODashboard yesterdayPct={yesterdayPct} streak={streak} date={selectedDate} onScorecardData={(sectionData) => {
+          // Fill the Rain Makers scorecard (team id 10) for the selected date from photo data
+          save(teams.map(t => {
+            if (t.id !== 10 || !t.sections) return t;
+            const newSections = t.sections.map(sec => {
+              const rowsForSec = sectionData[sec.id];
+              if (!rowsForSec || !Array.isArray(rowsForSec)) return sec;
+              return { ...sec, rows: rowsForSec.map((cells, i) => ({ id: sec.id + "_p" + Date.now() + "_" + i, cells })) };
+            });
+            return { ...t, sections: newSections };
+          }));
+        }} />
         <WinOfTheDay date={selectedDate} userName={userName} />
 
         <div style={{ position: "relative", flex: 1 }}>
