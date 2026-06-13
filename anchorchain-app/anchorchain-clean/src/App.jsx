@@ -11,7 +11,7 @@ const SYNC_KEYS = [
   "anchorchain_v2", "anchorchain_dashboard_v2", "anchorchain_staff_v2",
   "anchorchain_day_defaults_v1", "anchorchain_tenstar_v1",
   "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1",
-  "anchorchain_np_running_v2", "anchorchain_np_filled_v1"
+  "anchorchain_np_running_v2", "anchorchain_np_filled_v1", "anchorchain_sc_filled_v1"
 ];
 
 async function cloudLoad() {
@@ -305,6 +305,12 @@ function setStatTotal(date, fieldId, total) {
 // Remaining Monday-Friday business days from `date` through end of that month (inclusive of date)
 // Per-date "New Patients filled today" flag, stored as { "2026-06-14": true }
 const NP_FILLED_KEY = "anchorchain_np_filled_v1";
+// Per-date "Rain Makers scorecard filled" flag (set when Scheduled Today photo fills it)
+const SC_FILLED_KEY = "anchorchain_sc_filled_v1";
+function getScFilled(date) { try { const a = JSON.parse(localStorage.getItem(SC_FILLED_KEY) || "{}"); return !!a[date]; } catch { return false; } }
+function setScFilled(date, val) {
+  try { const a = JSON.parse(localStorage.getItem(SC_FILLED_KEY) || "{}"); if (val) a[date] = true; else delete a[date]; localStorage.setItem(SC_FILLED_KEY, JSON.stringify(a)); } catch {}
+}
 function getNpFilled(date) { try { const a = JSON.parse(localStorage.getItem(NP_FILLED_KEY) || "{}"); return !!a[date]; } catch { return false; } }
 function setNpFilled(date, val) {
   try { const a = JSON.parse(localStorage.getItem(NP_FILLED_KEY) || "{}"); if (val) a[date] = true; else delete a[date]; localStorage.setItem(NP_FILLED_KEY, JSON.stringify(a)); } catch {}
@@ -434,6 +440,8 @@ function getDayPct(teams, date) {
     }
     // Only include cards that actually have something to complete
     if (cardTotal > 0) cards.push({ done: cardDone, total: cardTotal });
+    // The Rain Makers scorecard (no tasks) counts as one card, done when filled
+    if (t.isScoreCard && date) cards.push({ done: getScFilled(date) ? 1 : 0, total: 1 });
   });
   // New Patients "Filled Today" is its own card (1 item)
   if (date) cards.push({ done: getNpFilled(date) ? 1 : 0, total: 1 });
@@ -925,10 +933,13 @@ function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditL
   );
 }
 
-function ScoreCard({ team, onUpdate, isMobile }) {
+function ScoreCard({ team, date, onUpdate, isMobile, onScFilledChange }) {
   const [sections, setSections] = useState(team.sections || []);
   const [collapsed, setCollapsed] = useState(true);
+  const [filled, setFilled] = useState(() => getScFilled(date));
   useEffect(() => setSections(team.sections || []), [team]);
+  useEffect(() => setFilled(getScFilled(date)), [date]);
+  const toggleFilled = () => { const v = !filled; setFilled(v); setScFilled(date, v); if (onScFilledChange) onScFilledChange(); };
 
   const updateCell = (sIdx, rIdx, cIdx, val) => {
     const ns = sections.map((s, si) => si !== sIdx ? s : {
@@ -960,7 +971,10 @@ function ScoreCard({ team, onUpdate, isMobile }) {
           {team.subtitle && <div style={{ fontSize: 14, color: "#bbb", fontFamily: "monospace", letterSpacing: 1, marginTop: 1 }}>{team.subtitle}</div>}
           <div style={{ fontSize: 14, color: team.color, fontFamily: "monospace", marginTop: 2, letterSpacing: 1 }}>SCORECARD</div>
         </div>
-        <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ProgressRing pct={filled ? 100 : 0} color={team.color} size={isMobile ? 50 : 72} />
+          <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
+        </div>
       </div>
       {!collapsed && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1020,6 +1034,9 @@ function ScoreCard({ team, onUpdate, isMobile }) {
               <button onClick={() => addRow(sIdx)} style={{ width: "100%", marginTop: 6, background: "transparent", border: "1px dashed #1a3050", borderRadius: 6, padding: "5px", color: "#444", fontFamily: "monospace", fontSize: 9, cursor: "pointer", letterSpacing: 1 }}>+ ADD ROW</button>
             </div>
           ))}
+          <button onClick={toggleFilled} style={{ width: "100%", marginTop: 4, background: filled ? "#0047AB" : "transparent", border: filled ? "none" : `1.5px solid ${team.color}`, borderRadius: 10, padding: "12px", color: filled ? "#fff" : team.color, fontFamily: "sans-serif", fontWeight: 700, fontSize: 15, cursor: "pointer", letterSpacing: 0.5 }}>
+            {filled ? "✓ Scorecard Done Today" : "Mark Scorecard Done Today"}
+          </button>
         </div>
       )}
     </div>
@@ -1844,6 +1861,9 @@ export default function App() {
             });
             return { ...t, sections: newSections };
           }));
+          // Mark the scorecard as filled for this date (counts as 100% complete)
+          setScFilled(selectedDate, true);
+          setOverallTick(t => t + 1);
         }} />
         <WinOfTheDay date={selectedDate} userName={userName} />
 
@@ -1863,7 +1883,7 @@ export default function App() {
                     {team.isStatCard
                       ? <StatCard team={team} date={selectedDate} isMobile={isMobile} onStatsChange={s => updateStats(team.id, s)} onFilledChange={() => setFilledTick(t => t + 1)} />
                       : team.isScoreCard
-                        ? <ScoreCard team={team} isMobile={isMobile} onUpdate={s => save(teams.map(t => t.id === team.id ? { ...t, sections: s } : t))} />
+                        ? <ScoreCard team={team} date={selectedDate} isMobile={isMobile} onUpdate={s => save(teams.map(t => t.id === team.id ? { ...t, sections: s } : t))} onScFilledChange={() => setOverallTick(t => t + 1)} />
                       : team.isRainMakers
                         ? <RainMakersCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onDeleteTask={kid => deleteTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
                         : <TeamCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onRename={n => renameTeam(team.id, n)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onDeleteTask={kid => deleteTask(team.id, kid)} onFixTasks={() => fixTeamTasks(team.id)} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
