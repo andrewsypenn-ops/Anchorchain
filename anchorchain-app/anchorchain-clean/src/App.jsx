@@ -10,7 +10,8 @@ const BOARD_ID = "shared_board";
 const SYNC_KEYS = [
   "anchorchain_v2", "anchorchain_dashboard_v2", "anchorchain_staff_v2",
   "anchorchain_day_defaults_v1", "anchorchain_tenstar_v1",
-  "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1"
+  "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1",
+  "anchorchain_np_running_v1"
 ];
 
 async function cloudLoad() {
@@ -274,6 +275,14 @@ function saveDashboard(date, d) {
   } catch {}
 }
 const STAFF_KEY = "anchorchain_staff_v2";
+// Monthly running total for New Patients, stored as { "2026-06": 125, "2026-05": 98 }
+const NP_RUNNING_KEY = "anchorchain_np_running_v1";
+function monthKeyFor(date) { return date.slice(0, 7); } // "2026-06-14" -> "2026-06"
+function loadNpRunning() { try { return JSON.parse(localStorage.getItem(NP_RUNNING_KEY) || "{}"); } catch { return {}; } }
+function getNpRunning(date) { const all = loadNpRunning(); return all[monthKeyFor(date)] || 0; }
+function setNpRunning(date, total) {
+  try { const all = loadNpRunning(); all[monthKeyFor(date)] = total; localStorage.setItem(NP_RUNNING_KEY, JSON.stringify(all)); } catch {}
+}
 const DAY_DEFAULTS_KEY = "anchorchain_day_defaults_v1";
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 function loadDayDefaults() { try { const r = localStorage.getItem(DAY_DEFAULTS_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; } }
@@ -621,12 +630,30 @@ function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDe
   );
 }
 
-function StatCard({ team, onStatsChange, isMobile }) {
+function StatCard({ team, date, onStatsChange, isMobile }) {
   const [stats, setStats] = useState(team.stats || []);
   const [collapsed, setCollapsed] = useState(true);
   useEffect(() => setStats(team.stats || []), [team]);
   const [addingTo, setAddingTo] = useState(null);
   const [newLabel, setNewLabel] = useState("");
+  // Monthly running total for New Patients
+  const [npTotal, setNpTotal] = useState(() => getNpRunning(date));
+  const [addAmount, setAddAmount] = useState("");
+  useEffect(() => { setNpTotal(getNpRunning(date)); }, [date]);
+  const addToNpTotal = () => {
+    const n = parseInt(addAmount.replace(/[^0-9]/g, ""), 10);
+    if (isNaN(n)) return;
+    const nt = npTotal + n;
+    setNpTotal(nt); setNpRunning(date, nt); setAddAmount("");
+  };
+  const editNpTotal = () => {
+    const cur = window.prompt("Edit the month-to-date New Patients total:", String(npTotal));
+    if (cur === null) return;
+    const n = parseInt(cur.replace(/[^0-9]/g, ""), 10);
+    if (isNaN(n)) return;
+    setNpTotal(n); setNpRunning(date, n);
+  };
+  const monthLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const update = (id, val) => { const u = stats.map(s => s.id === id ? { ...s, value: val } : s); setStats(u); onStatsChange && onStatsChange(u); };
   const deleteStat = (id) => { const u = stats.filter(s => s.id !== id); setStats(u); onStatsChange && onStatsChange(u); };
   const addStat = (section) => {
@@ -652,6 +679,17 @@ function StatCard({ team, onStatsChange, isMobile }) {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
           <div style={{ fontSize: 14, color: team.color, fontFamily: "monospace", letterSpacing: 1 }}>LIVE STATS</div>
           <div onClick={() => setCollapsed(c => !c)} style={{ cursor: "pointer", color: "#555", fontSize: 16, userSelect: "none", transition: "transform 0.3s", transform: collapsed ? "rotate(0deg)" : "rotate(180deg)" }}>▾</div>
+        </div>
+      </div>
+      <div style={{ background: "#0f1f38", border: `1.5px solid ${team.color}55`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontFamily: "monospace", fontSize: 9, color: "#888", letterSpacing: 1 }}>NEW PATIENTS · {monthLabel.toUpperCase()}</div>
+          <span onClick={editNpTotal} style={{ fontFamily: "monospace", fontSize: 9, color: "#555", cursor: "pointer", textDecoration: "underline" }}>edit</span>
+        </div>
+        <div style={{ fontFamily: "sans-serif", fontWeight: 800, fontSize: 38, color: team.nameColor || "#fff", lineHeight: 1, marginBottom: 10 }}>{npTotal}</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input value={addAmount} onChange={e => setAddAmount(e.target.value)} onKeyDown={e => e.key === "Enter" && addToNpTotal()} placeholder="+ add today's count" inputMode="numeric" style={{ flex: 1, background: "#0a1628", border: `1px solid ${team.color}44`, borderRadius: 8, color: "#fff", fontFamily: "monospace", fontSize: 13, padding: "8px 10px", outline: "none", boxSizing: "border-box" }} />
+          <button onClick={addToNpTotal} style={{ background: team.color, border: "none", borderRadius: 8, color: "#000", fontWeight: 700, fontSize: 16, padding: "8px 14px", cursor: "pointer", flexShrink: 0 }}>+</button>
         </div>
       </div>
       {!collapsed && (
@@ -1541,7 +1579,7 @@ export default function App() {
                   <div style={{ position: "relative", width: isMobile ? "100%" : "auto" }}>
                     <div style={{ position: "absolute", top: -32, left: 0, fontFamily: "monospace", fontSize: 16, color: "#555", letterSpacing: 2 }}>STEP {String(i + 1).padStart(2, "0")}</div>
                     {team.isStatCard
-                      ? <StatCard team={team} isMobile={isMobile} onStatsChange={s => updateStats(team.id, s)} />
+                      ? <StatCard team={team} date={selectedDate} isMobile={isMobile} onStatsChange={s => updateStats(team.id, s)} />
                       : team.isScoreCard
                         ? <ScoreCard team={team} isMobile={isMobile} onUpdate={s => save(teams.map(t => t.id === team.id ? { ...t, sections: s } : t))} />
                       : team.isRainMakers
