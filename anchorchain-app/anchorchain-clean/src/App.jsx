@@ -403,9 +403,36 @@ function getProgress(tasks, teamId, date) {
   return Math.round((doneItems / totalItems) * 100);
 }
 function getDayPct(teams, date) {
-  const all = teams.flatMap(t => (t.tasks || []).filter(tk => !tk.header && !tk.isNote));
-  let total = all.length;
-  let done = all.filter(t => t.done).length;
+  let total = 0, done = 0;
+  teams.forEach(t => {
+    const staffIds = t.id ? (TASK_IDS_WITH_STAFF[t.id] || []) : [];
+    const real = (t.tasks || []).filter(tk => !tk.header && !tk.isNote && !staffIds.includes(tk.id));
+    total += real.length;
+    done += real.filter(tk => tk.done).length;
+    // Add staff (doctor) checkmarks for this team's staff-tasks
+    if (staffIds.length && date) {
+      try {
+        const staffData = JSON.parse(localStorage.getItem(STAFF_KEY) || "{}");
+        const dayDefaults = JSON.parse(localStorage.getItem(DAY_DEFAULTS_KEY) || "{}");
+        const day = new Date(date + "T12:00:00").getDay();
+        const scheduled = STAFF.filter(name => DAY_SCHEDULE[name] && DAY_SCHEDULE[name].includes(day));
+        staffIds.forEach(tid => {
+          const key = `${date}_${t.id}_${tid}`;
+          const defKey = `default_${day}_${t.id}_${tid}`;
+          const entry = staffData[key] || {};
+          const def = dayDefaults[defKey] || {};
+          const hidden = entry.hidden !== undefined ? entry.hidden : (def.hidden || []);
+          const extras = entry.extras !== undefined ? entry.extras : (def.extras || []);
+          const dn = entry.done || {};
+          const people = [...scheduled.filter(n => !hidden.includes(n)), ...extras];
+          people.forEach(name => {
+            total++;
+            if (dn[name] === true || (dn[name] && dn[name].checked)) done++;
+          });
+        });
+      } catch {}
+    }
+  });
   // Include the New Patients "Filled Today" as one unit toward the overall
   if (date) {
     total += 1;
@@ -570,7 +597,7 @@ function StaffRow({ teamId, taskId, date, color, onStaffChange }) {
   );
 }
 
-function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDeleteTask, isMobile, onFixTasks }) {
+function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDeleteTask, isMobile, onFixTasks, onStaffChangeOverall }) {
   const [staffTick, setStaffTick] = useState(0);
   const pct = getProgress(team.tasks, team.id, date);
   const complete = pct === 100;
@@ -656,7 +683,7 @@ function TeamCard({ team, date, onToggle, onAddTask, onRename, onEditLabel, onDe
                     )}
                   </div>
                   {taskHasStaff && (
-                    <StaffRow teamId={team.id} taskId={task.id} date={date} color={team.color} onStaffChange={() => setStaffTick(t => t + 1)} />
+                    <StaffRow teamId={team.id} taskId={task.id} date={date} color={team.color} onStaffChange={() => { setStaffTick(t => t + 1); if (onStaffChangeOverall) onStaffChangeOverall(); }} />
                   )}
                 </div>
               );
@@ -805,7 +832,7 @@ function StatCard({ team, date, onStatsChange, isMobile, onFilledChange }) {
   );
 }
 
-function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditLabel, isMobile }) {
+function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditLabel, isMobile, onStaffChangeOverall }) {
   const [staffTick, setStaffTick] = useState(0);
   const pct = getProgress(team.tasks, team.id, date);
   const complete = pct === 100;
@@ -869,7 +896,7 @@ function RainMakersCard({ team, date, onToggle, onDeleteTask, onAddTask, onEditL
                     <button onClick={e => { e.stopPropagation(); onDeleteTask(task.id); }} style={{ background: "none", border: "none", color: "#3a3a5a", fontSize: 18, cursor: "pointer", padding: "0 2px", lineHeight: 1, fontWeight: 700, flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.color = "#ff4444"} onMouseLeave={e => e.currentTarget.style.color = "#3a3a5a"}>×</button>
                   </div>
                   {rmHasStaff && (
-                    <StaffRow teamId={7} taskId={task.id} date={date} color={team.color} onStaffChange={() => setStaffTick(t => t + 1)} />
+                    <StaffRow teamId={7} taskId={task.id} date={date} color={team.color} onStaffChange={() => { setStaffTick(t => t + 1); if (onStaffChangeOverall) onStaffChangeOverall(); }} />
                   )}
                 </div>
               );
@@ -1468,6 +1495,7 @@ export default function App() {
   });
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [filledTick, setFilledTick] = useState(0);
+  const [overallTick, setOverallTick] = useState(0);
   const [showCal, setShowCal] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [nextId, setNextId] = useState(() => {
@@ -1805,8 +1833,8 @@ export default function App() {
                       : team.isScoreCard
                         ? <ScoreCard team={team} isMobile={isMobile} onUpdate={s => save(teams.map(t => t.id === team.id ? { ...t, sections: s } : t))} />
                       : team.isRainMakers
-                        ? <RainMakersCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onDeleteTask={kid => deleteTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} />
-                        : <TeamCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onRename={n => renameTeam(team.id, n)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onDeleteTask={kid => deleteTask(team.id, kid)} onFixTasks={() => fixGrowthGang()} />
+                        ? <RainMakersCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onDeleteTask={kid => deleteTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
+                        : <TeamCard team={team} date={selectedDate} isMobile={isMobile} onToggle={kid => toggleTask(team.id, kid)} onAddTask={l => addTask(team.id, l)} onRename={n => renameTeam(team.id, n)} onEditLabel={(kid, nl) => updateTaskLabel(team.id, kid, nl)} onDeleteTask={kid => deleteTask(team.id, kid)} onFixTasks={() => fixGrowthGang()} onStaffChangeOverall={() => setOverallTick(t => t + 1)} />
                     }
                   </div>
                   {!isMobile && i < teams.length - 1 && <div style={{ paddingTop: 60 }}><Arrow /></div>}
