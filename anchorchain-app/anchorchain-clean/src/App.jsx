@@ -11,7 +11,7 @@ const SYNC_KEYS = [
   "anchorchain_v2", "anchorchain_dashboard_v2", "anchorchain_staff_v2",
   "anchorchain_day_defaults_v1", "anchorchain_tenstar_v1",
   "anchorchain_culture_v1", "anchorchain_win_v1", "anchorchain_template_v1",
-  "anchorchain_np_running_v2", "anchorchain_np_filled_v1", "anchorchain_sc_filled_v1"
+  "anchorchain_np_running_v2", "anchorchain_np_filled_v1", "anchorchain_sc_filled_v1", "anchorchain_sheet_pulled_v1"
 ];
 
 async function cloudLoad() {
@@ -311,6 +311,13 @@ function getScFilled(date) { try { const a = JSON.parse(localStorage.getItem(SC_
 function setScFilled(date, val) {
   try { const a = JSON.parse(localStorage.getItem(SC_FILLED_KEY) || "{}"); if (val) a[date] = true; else delete a[date]; localStorage.setItem(SC_FILLED_KEY, JSON.stringify(a)); } catch {}
 }
+// Tracks how many sheet patients have already been pulled into each field, per date:
+// { "2026-06-13": { "610": 4, "619": 2 }, ... } so re-opening only adds NEW ones
+const SHEET_PULLED_KEY = "anchorchain_sheet_pulled_v1";
+function getSheetPulled(date) { try { const a = JSON.parse(localStorage.getItem(SHEET_PULLED_KEY) || "{}"); return a[date] || {}; } catch { return {}; } }
+function setSheetPulled(date, obj) {
+  try { const a = JSON.parse(localStorage.getItem(SHEET_PULLED_KEY) || "{}"); a[date] = obj; localStorage.setItem(SHEET_PULLED_KEY, JSON.stringify(a)); } catch {}
+}
 function getNpFilled(date) { try { const a = JSON.parse(localStorage.getItem(NP_FILLED_KEY) || "{}"); return !!a[date]; } catch { return false; } }
 function setNpFilled(date, val) {
   try { const a = JSON.parse(localStorage.getItem(NP_FILLED_KEY) || "{}"); if (val) a[date] = true; else delete a[date]; localStorage.setItem(NP_FILLED_KEY, JSON.stringify(a)); } catch {}
@@ -347,31 +354,75 @@ function deepClone() {
 }
 async function fetchNPData(date) {
   try {
-    const range = "A:E";
+    const [yr, mo, dy] = date.split("-");
+    const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    const tabName = `${MONTHS[parseInt(mo) - 1]} ${yr}`; // e.g. "June 2026"
+    const range = encodeURIComponent(`${tabName}!A:I`);
     const url = `https://sheets.googleapis.com/v4/spreadsheets/1MvMoBEpwWFykWWjWv5T0yhcNgltCW8kX9HvkPSZvcyA/values/${range}?key=AIzaSyB2kwRqpvTFIUKOZQEU4xlF4N2YlDrFL9E`;
     const res = await fetch(url);
     const json = await res.json();
     const rows = json.values || [];
-    
-    // Parse date to match sheet format MM/DD/YYYY
-    const [yr, mo, dy] = date.split("-");
-    const dateStr = `${parseInt(mo)}/${parseInt(dy)}/${yr}`;
-    
-    // Count Yes for today
-    const todayYes = rows.filter(r => r[3] && r[3].trim() === dateStr && r[4] && r[4].trim().toLowerCase() === "yes").length;
-    
-    // Count all Yes this month
-    const monthYes = rows.filter(r => r[3] && r[3].trim().endsWith(`/${yr}`) && r[3].includes(`${parseInt(mo)}/`) && r[4] && r[4].trim().toLowerCase() === "yes").length;
-    
-    // Count total rows with Yes (all time for the month)
-    const monthStr = `${parseInt(mo)}/`;
-    const monthTotal = rows.filter(r => r[3] && r[3].startsWith(monthStr) && r[4] && r[4].trim().toLowerCase() === "yes").length;
-    
-    return { todayYes, monthYes };
+
+    // Parse date to match sheet format MM/DD/YYYY (handles "6/9/2026" and "06/09/2026")
+    const norm = (s) => {
+      if (!s) return "";
+      const parts = String(s).trim().split("/");
+      if (parts.length !== 3) return String(s).trim();
+      return `${parseInt(parts[0])}/${parseInt(parts[1])}/${parts[2]}`;
+    };
+    const target = `${parseInt(mo)}/${parseInt(dy)}/${yr}`;
+
+    const isYes = (r) => r[4] && r[4].trim().toLowerCase() === "yes";
+    const todayRows = rows.filter(r => norm(r[3]) === target && isYes(r));
+
+    const todayYes = todayRows.length;
+    const monthYes = rows.filter(r => isYes(r) && norm(r[3]).endsWith(`/${yr}`) && norm(r[3]).split("/")[0] === String(parseInt(mo))).length;
+
+    // Count by team member (col H = index 7) and referral source (col I = index 8) for today's Yes rows
+    const teamCounts = {};
+    const refCounts = {};
+    todayRows.forEach(r => {
+      const tm = (r[7] || "").trim();
+      const ref = (r[8] || "").trim();
+      if (tm) teamCounts[tm] = (teamCounts[tm] || 0) + 1;
+      if (ref) refCounts[ref] = (refCounts[ref] || 0) + 1;
+    });
+
+    return { todayYes, monthYes, teamCounts, refCounts };
   } catch(e) {
     console.error("Sheets fetch error:", e);
     return null;
   }
+}
+
+// Map sheet labels -> app field labels (so counts land in the right box)
+const SHEET_REF_MAP = {
+  "google/google ad": "Google",
+  "google": "Google",
+  "wom, friend family": "Internal (Friend/Family) WOM",
+  "wom friend family": "Internal (Friend/Family) WOM",
+  "dr. referral": "Dr Referral",
+  "dr referral": "Dr Referral",
+  "returning pt": "Returning Patient",
+  "drive by/saw sign": "Walk In / Drive By",
+  "walk in": "Walk In / Drive By",
+  "insurance": "Insurance",
+  "social media": "Social Media",
+  "website": "Website",
+};
+const SHEET_TM_MAP = {
+  "megan": "Megan", "hannah": "Hannah", "mc": "MC", "julia": "Julia",
+  "liza": "Liza", "litzy": "Litzy", "brianna": "Brianna", "bri": "Brianna",
+  "ashanty": "Ashanty", "sheila": "Sheila", "michii": "Michii",
+  "charmaine": "Charmaine", "charm": "Charmaine", "isa": "Isa", "kara": "Kara",
+};
+function mapSheetLabel(map, raw) {
+  if (!raw) return null;
+  const k = raw.trim().toLowerCase();
+  if (map[k]) return map[k];
+  // partial match (e.g. "Charm…" truncated)
+  for (const key in map) { if (k.startsWith(key.slice(0, 4)) || key.startsWith(k.slice(0, 4))) return map[key]; }
+  return null;
 }
 
 function getProgress(tasks, teamId, date) {
@@ -736,6 +787,65 @@ function StatCard({ team, date, onStatsChange, isMobile, onFilledChange }) {
   const [addInputs, setAddInputs] = useState({}); // { fieldId: "typed amount" }
   const [filled, setFilled] = useState(() => getNpFilled(date));
   useEffect(() => { setTotals(getStatTotals(date)); setAddInputs({}); setFilled(getNpFilled(date)); }, [date]);
+
+  // Auto-pull referral source & team member counts from the Google Sheet for this day.
+  // Only adds patients not already pulled (tracked per-date), so re-opening never double-counts.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const data = await fetchNPData(date);
+      if (!data || cancelled) return;
+      const curStats = team.stats || [];
+      // Build label -> field id lookup for ref (610-618,700-799) and tm (619-699,800+)
+      const labelToId = {};
+      curStats.forEach(s => { labelToId[s.label.trim().toLowerCase()] = s.id; });
+      const findId = (appLabel) => labelToId[appLabel.trim().toLowerCase()];
+
+      // Translate sheet counts into { fieldId: countFromSheet }
+      const sheetByField = {};
+      Object.entries(data.refCounts || {}).forEach(([raw, n]) => {
+        const appLabel = mapSheetLabel(SHEET_REF_MAP, raw);
+        const id = appLabel && findId(appLabel);
+        if (id) sheetByField[id] = (sheetByField[id] || 0) + n;
+      });
+      Object.entries(data.teamCounts || {}).forEach(([raw, n]) => {
+        const appLabel = mapSheetLabel(SHEET_TM_MAP, raw);
+        const id = appLabel && findId(appLabel);
+        if (id) sheetByField[id] = (sheetByField[id] || 0) + n;
+      });
+
+      const alreadyPulled = getSheetPulled(date); // { fieldId: count previously pulled }
+      const curTotals = getStatTotals(date);
+      const newTotals = { ...curTotals };
+      const newPulled = { ...alreadyPulled };
+      let changed = false;
+      Object.entries(sheetByField).forEach(([id, sheetCount]) => {
+        const prev = alreadyPulled[id] || 0;
+        const diff = sheetCount - prev; // only add genuinely new patients
+        if (diff !== 0) {
+          newTotals[id] = (newTotals[id] || 0) + diff;
+          newPulled[id] = sheetCount;
+          changed = true;
+        }
+      });
+      if (changed && !cancelled) {
+        // persist each changed total
+        Object.keys(sheetByField).forEach(id => { if (newTotals[id] !== undefined) setStatTotal(date, id, newTotals[id]); });
+        setSheetPulled(date, newPulled);
+        setTotals(newTotals);
+      }
+
+      // "NP Sch'd For Future" (6001) mirrors the dashboard New Patients = today's Yes count
+      if (!cancelled && typeof data.todayYes === "number") {
+        const cur6001 = getStatTotals(date)[6001] || 0;
+        if (cur6001 !== data.todayYes) {
+          setStatTotal(date, 6001, data.todayYes);
+          setTotals(prev => ({ ...prev, 6001: data.todayYes }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [date, team]);
   const toggleFilled = () => { const v = !filled; setFilled(v); setNpFilled(date, v); if (onFilledChange) onFilledChange(); };
   const monthLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
