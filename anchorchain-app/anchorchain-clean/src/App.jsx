@@ -43,26 +43,29 @@ async function cloudCheckStamp() {
 }
 
 let saveTimer = null;
+async function cloudSaveNow() {
+  // Immediate (non-debounced) cloud save — used on mobile page-hide so data
+  // isn't lost when iOS clears localStorage for backgrounded tabs.
+  try {
+    const payload = {};
+    SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) try { payload[k] = JSON.parse(v); } catch {} });
+    const stamp = new Date().toISOString();
+    await fetch(`${SUPABASE_URL}/rest/v1/anchorchain_data`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`,
+        "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ id: BOARD_ID, data: payload, updated_at: stamp }),
+      keepalive: true
+    });
+    window.__acLastCloudStamp = stamp;
+  } catch (e) { console.error("Cloud save (now) failed:", e); }
+}
 function cloudSave() {
   if (saveTimer) clearTimeout(saveTimer);
   window.__acLastLocalEdit = Date.now();
-  saveTimer = setTimeout(async () => {
-    try {
-      const payload = {};
-      SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) try { payload[k] = JSON.parse(v); } catch {} });
-      const stamp = new Date().toISOString();
-      await fetch(`${SUPABASE_URL}/rest/v1/anchorchain_data`, {
-        method: "POST",
-        headers: {
-          apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`,
-          "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
-        },
-        body: JSON.stringify({ id: BOARD_ID, data: payload, updated_at: stamp })
-      });
-      // Remember our own stamp so polling doesn't treat our save as someone else's change
-      window.__acLastCloudStamp = stamp;
-    } catch (e) { console.error("Cloud save failed:", e); }
-  }, 800);
+  saveTimer = setTimeout(() => { cloudSaveNow(); }, 400);
 }
 
 const STAFF = ["Saavedra", "Sun", "Tubio", "Yoon"];
@@ -1737,7 +1740,17 @@ export default function App() {
     // Also refresh when the tab regains focus
     const onFocus = () => { window.__acLastCloudStamp = ""; tick(); };
     window.addEventListener("focus", onFocus);
-    return () => { stopped = true; clearInterval(interval); window.removeEventListener("focus", onFocus); };
+    // MOBILE: when the tab is hidden/backgrounded (switching apps, locking phone),
+    // immediately flush any pending save to the cloud so iOS can't lose it.
+    const onHide = () => { if (document.visibilityState === "hidden") cloudSaveNow(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", cloudSaveNow);
+    return () => {
+      stopped = true; clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", cloudSaveNow);
+    };
   }, [authed, userName]);
 
   const tryLogin = () => {
