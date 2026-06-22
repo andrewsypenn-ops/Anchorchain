@@ -1746,15 +1746,21 @@ export default function App() {
       tick();
     };
     window.addEventListener("focus", onFocus);
-    // MOBILE: when the tab is hidden/backgrounded (switching apps, locking phone),
-    // immediately flush any pending save to the cloud so iOS can't lose it.
-    const onHide = () => { if (document.visibilityState === "hidden") cloudSaveNow(); };
-    document.addEventListener("visibilitychange", onHide);
+    // Flush save when hidden (mobile); check for updates when tab becomes visible (desktop background tab).
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        cloudSaveNow();
+      } else if (document.visibilityState === "visible") {
+        const sinceEdit = Date.now() - (window.__acLastLocalEdit || 0);
+        if (sinceEdit >= 3000) tick();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", cloudSaveNow);
     return () => {
       stopped = true; clearInterval(interval);
       window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", cloudSaveNow);
     };
   }, [authed, userName]);
@@ -2025,7 +2031,7 @@ export default function App() {
           </div>
         </div>
 
-        <CEODashboard yesterdayPct={yesterdayPct} streak={streak} date={selectedDate} onScorecardData={(sectionData) => {
+        <CEODashboard key={`dash_${refreshTick}`} yesterdayPct={yesterdayPct} streak={streak} date={selectedDate} onScorecardData={(sectionData) => {
           // Fill the Rain Makers scorecard (team id 10) for the selected date from photo data
           save(teams.map(t => {
             if (t.id !== 10 || !t.sections) return t;
