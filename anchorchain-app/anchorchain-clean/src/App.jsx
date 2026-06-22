@@ -16,34 +16,51 @@ const SYNC_KEYS = [
 
 async function cloudLoad() {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/anchorchain_data?id=eq.${BOARD_ID}&select=data`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/anchorchain_data?id=eq.${BOARD_ID}&select=data,updated_at`, {
       headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` }
     });
     const rows = await res.json();
     if (rows && rows[0] && rows[0].data) {
       const cloud = rows[0].data;
       SYNC_KEYS.forEach(k => { if (cloud[k] !== undefined) localStorage.setItem(k, JSON.stringify(cloud[k])); });
+      window.__acLastCloudStamp = rows[0].updated_at || "";
       return true;
     }
   } catch (e) { console.error("Cloud load failed:", e); }
   return false;
 }
 
+// Lightweight check: returns the cloud's updated_at without overwriting local data
+async function cloudCheckStamp() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/anchorchain_data?id=eq.${BOARD_ID}&select=updated_at`, {
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` }
+    });
+    const rows = await res.json();
+    if (rows && rows[0]) return rows[0].updated_at || "";
+  } catch (e) {}
+  return null;
+}
+
 let saveTimer = null;
 function cloudSave() {
   if (saveTimer) clearTimeout(saveTimer);
+  window.__acLastLocalEdit = Date.now();
   saveTimer = setTimeout(async () => {
     try {
       const payload = {};
       SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) try { payload[k] = JSON.parse(v); } catch {} });
+      const stamp = new Date().toISOString();
       await fetch(`${SUPABASE_URL}/rest/v1/anchorchain_data`, {
         method: "POST",
         headers: {
           apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`,
           "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
         },
-        body: JSON.stringify({ id: BOARD_ID, data: payload, updated_at: new Date().toISOString() })
+        body: JSON.stringify({ id: BOARD_ID, data: payload, updated_at: stamp })
       });
+      // Remember our own stamp so polling doesn't treat our save as someone else's change
+      window.__acLastCloudStamp = stamp;
     } catch (e) { console.error("Cloud save failed:", e); }
   }, 800);
 }
@@ -1640,6 +1657,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [filledTick, setFilledTick] = useState(0);
   const [overallTick, setOverallTick] = useState(0);
+  const [refreshTick, setRefreshTick] = useState(0);
   const [showCal, setShowCal] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [nextId, setNextId] = useState(() => {
@@ -1692,6 +1710,34 @@ export default function App() {
       }
       setCloudLoaded(true);
     });
+  }, [authed, userName]);
+
+  // LIVE SYNC: poll the cloud every few seconds and refresh if someone else changed data.
+  useEffect(() => {
+    if (!authed || !userName) return;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      // Skip if the user edited very recently (let their save settle first)
+      const sinceEdit = Date.now() - (window.__acLastLocalEdit || 0);
+      if (sinceEdit < 2000) return;
+      const stamp = await cloudCheckStamp();
+      if (stopped || stamp === null) return;
+      const lastSeen = window.__acLastCloudStamp || "";
+      if (stamp && stamp !== lastSeen) {
+        // Someone else (or another device) updated the board — pull the latest
+        const ok = await cloudLoad();
+        if (ok && !stopped) {
+          setAllData(loadAllData());
+          setRefreshTick(t => t + 1);
+        }
+      }
+    };
+    const interval = setInterval(tick, 5000);
+    // Also refresh when the tab regains focus
+    const onFocus = () => { window.__acLastCloudStamp = ""; tick(); };
+    window.addEventListener("focus", onFocus);
+    return () => { stopped = true; clearInterval(interval); window.removeEventListener("focus", onFocus); };
   }, [authed, userName]);
 
   const tryLogin = () => {
@@ -1987,7 +2033,7 @@ export default function App() {
           <div ref={scrollRef} style={{ padding: isMobile ? "30px 16px 40px" : "50px 60px 80px", overflowX: isMobile ? "visible" : "auto", overflowY: "visible" }}>
             <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "center" : "flex-start", minWidth: isMobile ? "auto" : "max-content", gap: isMobile ? 24 : 0, transform: (!isMobile && zoomed) ? `scale(${Math.min(0.99, (window.innerWidth - 120) / (teams.length * 400))})` : "scale(1)", transformOrigin: "top left", transition: "transform 0.4s ease" }}>
               {teams.map((team, i) => (
-                <div key={team.id} style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", width: isMobile ? "100%" : "auto" }}>
+                <div key={`${team.id}_${refreshTick}`} style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", width: isMobile ? "100%" : "auto" }}>
                   <div style={{ position: "relative", width: isMobile ? "100%" : "auto" }}>
                     <div style={{ position: "absolute", top: -32, left: 0, fontFamily: "monospace", fontSize: 16, color: "#555", letterSpacing: 2 }}>STEP {String(i + 1).padStart(2, "0")}</div>
                     {team.isStatCard
